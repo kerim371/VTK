@@ -365,10 +365,11 @@ bool vtkBoreholeRepresentation::ComputePointAndTangent(double t, double point[3]
 void vtkBoreholeRepresentation::UpdateClippingPlanes()
 {
   double topPoint[3];
+  double topTangent[3];
   double bottomPoint[3];
-  double tangent[3];
-  if (!this->ComputePointAndTangent(this->TopPosition, topPoint, tangent) ||
-    !this->ComputePointAndTangent(this->BottomPosition, bottomPoint, tangent))
+  double bottomTangent[3];
+  if (!this->ComputePointAndTangent(this->TopPosition, topPoint, topTangent) ||
+    !this->ComputePointAndTangent(this->BottomPosition, bottomPoint, bottomTangent))
   {
     return;
   }
