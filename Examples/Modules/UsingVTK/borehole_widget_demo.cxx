@@ -7,12 +7,16 @@
 #include "vtkCellArray.h"
 #include "vtkInteractorStyleTrackballCamera.h"
 #include "vtkNew.h"
+#include "vtkPlaneSource.h"
 #include "vtkPoints.h"
 #include "vtkPolyData.h"
+#include "vtkPolyDataCollection.h"
 #include "vtkPolyLine.h"
 #include "vtkRenderWindow.h"
 #include "vtkRenderWindowInteractor.h"
 #include "vtkRenderer.h"
+
+#include <cmath>
 
 namespace
 {
@@ -41,6 +45,31 @@ vtkSmartPointer<vtkPolyData> MakeTrajectory()
 
   return trajectory;
 }
+
+vtkSmartPointer<vtkPolyData> MakeStructuralSurface(
+  double zBase, double ax, double ay, double wiggle, int resolution)
+{
+  vtkNew<vtkPlaneSource> plane;
+  plane->SetOrigin(-20.0, -20.0, 0.0);
+  plane->SetPoint1(20.0, -20.0, 0.0);
+  plane->SetPoint2(-20.0, 20.0, 0.0);
+  plane->SetXResolution(resolution);
+  plane->SetYResolution(resolution);
+  plane->Update();
+
+  vtkNew<vtkPolyData> pd;
+  pd->DeepCopy(plane->GetOutput());
+  vtkPoints* pts = pd->GetPoints();
+  for (vtkIdType i = 0; i < pts->GetNumberOfPoints(); ++i)
+  {
+    double p[3];
+    pts->GetPoint(i, p);
+    p[2] = zBase + ax * p[0] + ay * p[1] + wiggle * std::sin(0.15 * p[0]) * std::cos(0.15 * p[1]);
+    pts->SetPoint(i, p);
+  }
+  pts->Modified();
+  return pd;
+}
 }
 
 int main(int, char*[])
@@ -62,6 +91,13 @@ int main(int, char*[])
   vtkNew<vtkBoreholeRepresentation> rep;
   rep->SetRenderer(renderer);
   rep->SetInputData(MakeTrajectory());
+  vtkNew<vtkPolyDataCollection> structuralSurfaces;
+  structuralSurfaces->AddItem(MakeStructuralSurface(8.0, 0.03, -0.01, 0.8, 60));
+  structuralSurfaces->AddItem(MakeStructuralSurface(20.0, -0.02, 0.025, 0.5, 60));
+  structuralSurfaces->AddItem(MakeStructuralSurface(33.0, 0.015, 0.015, 0.7, 60));
+  rep->SetStructuralSurfaces(structuralSurfaces);
+  rep->SetSurfaceDx(0.5);
+  rep->SetSurfaceDy(0.5);
   rep->SetRadius(0.6);
   rep->SetTopPosition(0.15);
   rep->SetBottomPosition(0.85);

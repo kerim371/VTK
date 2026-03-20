@@ -26,6 +26,7 @@ class vtkClipClosedSurface;
 class vtkPlane;
 class vtkPlaneCollection;
 class vtkPolyData;
+class vtkPolyDataCollection;
 class vtkPolyDataMapper;
 class vtkProperty;
 class vtkRegularPolygonSource;
@@ -66,6 +67,14 @@ public:
   vtkSetClampMacro(BottomPosition, double, 0.0, 1.0);
   vtkGetMacro(BottomPosition, double);
 
+  void SetStructuralSurfaces(vtkPolyDataCollection* surfaces);
+  vtkGetObjectMacro(StructuralSurfaces, vtkPolyDataCollection);
+
+  vtkSetClampMacro(SurfaceDx, double, 1e-6, VTK_DOUBLE_MAX);
+  vtkGetMacro(SurfaceDx, double);
+  vtkSetClampMacro(SurfaceDy, double, 1e-6, VTK_DOUBLE_MAX);
+  vtkGetMacro(SurfaceDy, double);
+
   void BuildRepresentation() override;
 
   int ComputeInteractionState(int X, int Y, int modify = 0) override;
@@ -91,6 +100,8 @@ protected:
   bool PickWorldPoint(int X, int Y, double worldPt[3]);
   bool ComputeClosestOnTrajectory(const double worldPt[3], double& t, double& distance) const;
   bool ComputePointAndTangent(double t, double point[3], double tangent[3]) const;
+  bool ComputeInterpolatedSurfaceNormal(const double point[3], double normal[3]) const;
+  bool EvaluateSurfaceHeightAtXY(vtkPolyData* surface, double x, double y, double& z) const;
   void UpdateClippingPlanes();
   void UpdateCapActors();
 
@@ -105,6 +116,7 @@ protected:
   vtkPlaneCollection* Planes;
   vtkPlane* TopPlane;
   vtkPlane* BottomPlane;
+  vtkPolyDataCollection* StructuralSurfaces;
 
   vtkPolyDataMapper* WallMapper;
   vtkActor* WallActor;
@@ -127,6 +139,8 @@ protected:
   std::vector<double> CumulativeLengths;
   double TotalLength;
   double LastEventPosition[2];
+  double SurfaceDx;
+  double SurfaceDy;
 
   int CurrentOperation;
 

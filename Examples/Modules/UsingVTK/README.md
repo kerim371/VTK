@@ -17,3 +17,6 @@ The demo opens a render window where you can:
 
 - hover and drag top/bottom caps to move the interval,
 - hover and drag the wall to change the tube radius.
+- observe cap orientation adapting to interpolated geological structural surfaces
+  (configured from 3 synthetic horizons in the demo) using finite-difference
+  sampling controlled by `SurfaceDx` / `SurfaceDy`.

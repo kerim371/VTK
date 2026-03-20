@@ -10,6 +10,7 @@
 #include "vtkPlane.h"
 #include "vtkPlaneCollection.h"
 #include "vtkPolyData.h"
+#include "vtkPolyDataCollection.h"
 #include "vtkPolyDataMapper.h"
 #include "vtkPoints.h"
 #include "vtkProperty.h"
@@ -31,6 +32,8 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   , TopPosition(0.1)
   , BottomPosition(0.9)
   , TotalLength(0.0)
+  , SurfaceDx(1.0)
+  , SurfaceDy(1.0)
   , CurrentOperation(DragNone)
 {
   this->Tube = vtkTubeFilter::New();
@@ -41,6 +44,7 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   this->Planes = vtkPlaneCollection::New();
   this->TopPlane = vtkPlane::New();
   this->BottomPlane = vtkPlane::New();
+  this->StructuralSurfaces = nullptr;
   this->Planes->AddItem(this->TopPlane);
   this->Planes->AddItem(this->BottomPlane);
 
@@ -102,6 +106,7 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
 vtkBoreholeRepresentation::~vtkBoreholeRepresentation()
 {
   this->SetInputData(nullptr);
+  this->SetStructuralSurfaces(nullptr);
   this->Tube->Delete();
   this->Clip->Delete();
   this->Planes->Delete();
@@ -120,6 +125,25 @@ vtkBoreholeRepresentation::~vtkBoreholeRepresentation()
   this->DefaultCapProperty->Delete();
   this->SelectedCapProperty->Delete();
   this->Picker->Delete();
+}
+
+void vtkBoreholeRepresentation::SetStructuralSurfaces(vtkPolyDataCollection* surfaces)
+{
+  if (this->StructuralSurfaces == surfaces)
+  {
+    return;
+  }
+
+  if (this->StructuralSurfaces)
+  {
+    this->StructuralSurfaces->UnRegister(this);
+  }
+  this->StructuralSurfaces = surfaces;
+  if (this->StructuralSurfaces)
+  {
+    this->StructuralSurfaces->Register(this);
+  }
+  this->Modified();
 }
 
 void vtkBoreholeRepresentation::SetInputData(vtkPolyData* polyData)
@@ -271,12 +295,17 @@ void vtkBoreholeRepresentation::UpdateClippingPlanes()
     return;
   }
 
+  double topNormal[3] = { -topTangent[0], -topTangent[1], -topTangent[2] };
+  double bottomNormal[3] = { bottomTangent[0], bottomTangent[1], bottomTangent[2] };
+  this->ComputeInterpolatedSurfaceNormal(topPoint, topNormal);
+  this->ComputeInterpolatedSurfaceNormal(bottomPoint, bottomNormal);
+
   // Keep the interval between planes (top keeps segment towards +t, bottom towards -t).
   this->TopPlane->SetOrigin(topPoint);
-  this->TopPlane->SetNormal(-topTangent[0], -topTangent[1], -topTangent[2]);
+  this->TopPlane->SetNormal(topNormal);
 
   this->BottomPlane->SetOrigin(bottomPoint);
-  this->BottomPlane->SetNormal(bottomTangent);
+  this->BottomPlane->SetNormal(bottomNormal);
 }
 
 void vtkBoreholeRepresentation::UpdateCapActors()
@@ -360,6 +389,129 @@ bool vtkBoreholeRepresentation::ComputeClosestOnTrajectory(
   }
 
   return distance < VTK_DOUBLE_MAX;
+}
+
+bool vtkBoreholeRepresentation::EvaluateSurfaceHeightAtXY(
+  vtkPolyData* surface, double x, double y, double& z) const
+{
+  if (!surface || !surface->GetPoints())
+  {
+    return false;
+  }
+
+  double bounds[6];
+  surface->GetBounds(bounds);
+  if (x < bounds[0] || x > bounds[1] || y < bounds[2] || y > bounds[3])
+  {
+    return false;
+  }
+
+  vtkPoints* pts = surface->GetPoints();
+  vtkIdType bestId = -1;
+  double bestD2 = VTK_DOUBLE_MAX;
+  for (vtkIdType i = 0; i < pts->GetNumberOfPoints(); ++i)
+  {
+    double p[3];
+    pts->GetPoint(i, p);
+    const double dx = p[0] - x;
+    const double dy = p[1] - y;
+    const double d2 = dx * dx + dy * dy;
+    if (d2 < bestD2)
+    {
+      bestD2 = d2;
+      bestId = i;
+    }
+  }
+
+  if (bestId < 0)
+  {
+    return false;
+  }
+
+  double p[3];
+  pts->GetPoint(bestId, p);
+  z = p[2];
+  return true;
+}
+
+bool vtkBoreholeRepresentation::ComputeInterpolatedSurfaceNormal(
+  const double point[3], double normal[3]) const
+{
+  if (!this->StructuralSurfaces || this->StructuralSurfaces->GetNumberOfItems() < 1)
+  {
+    return false;
+  }
+
+  struct Sample
+  {
+    vtkPolyData* Surface = nullptr;
+    double Z = 0.0;
+  };
+  std::vector<Sample> samples;
+
+  this->StructuralSurfaces->InitTraversal();
+  while (vtkPolyData* surface = vtkPolyData::SafeDownCast(this->StructuralSurfaces->GetNextItemAsObject()))
+  {
+    double z = 0.0;
+    if (this->EvaluateSurfaceHeightAtXY(surface, point[0], point[1], z))
+    {
+      samples.push_back({ surface, z });
+    }
+  }
+
+  if (samples.empty())
+  {
+    return false;
+  }
+  std::sort(samples.begin(), samples.end(),
+    [](const Sample& a, const Sample& b) { return a.Z < b.Z; });
+
+  const Sample* low = &samples.front();
+  const Sample* high = &samples.back();
+  for (size_t i = 1; i < samples.size(); ++i)
+  {
+    if (point[2] <= samples[i].Z)
+    {
+      low = &samples[i - 1];
+      high = &samples[i];
+      break;
+    }
+  }
+
+  const double denom = std::max(high->Z - low->Z, 1e-12);
+  const double a = std::clamp((point[2] - low->Z) / denom, 0.0, 1.0);
+
+  auto evalInterpZ = [&](double x, double y, double& zInterp) -> bool {
+    double zLow = 0.0;
+    double zHigh = 0.0;
+    if (!this->EvaluateSurfaceHeightAtXY(low->Surface, x, y, zLow))
+    {
+      return false;
+    }
+    if (!this->EvaluateSurfaceHeightAtXY(high->Surface, x, y, zHigh))
+    {
+      return false;
+    }
+    zInterp = (1.0 - a) * zLow + a * zHigh;
+    return true;
+  };
+
+  double zpx = 0.0, zmx = 0.0, zpy = 0.0, zmy = 0.0;
+  if (!evalInterpZ(point[0] + this->SurfaceDx, point[1], zpx) ||
+    !evalInterpZ(point[0] - this->SurfaceDx, point[1], zmx) ||
+    !evalInterpZ(point[0], point[1] + this->SurfaceDy, zpy) ||
+    !evalInterpZ(point[0], point[1] - this->SurfaceDy, zmy))
+  {
+    return false;
+  }
+
+  const double dzdx = (zpx - zmx) / (2.0 * this->SurfaceDx);
+  const double dzdy = (zpy - zmy) / (2.0 * this->SurfaceDy);
+  normal[0] = -dzdx;
+  normal[1] = -dzdy;
+  normal[2] = 1.0;
+  vtkMath::Normalize(normal);
+  return true;
 }
 
 int vtkBoreholeRepresentation::ComputeInteractionState(int X, int Y, int vtkNotUsed(modify))
