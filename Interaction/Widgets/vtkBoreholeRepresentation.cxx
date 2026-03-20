@@ -197,6 +197,20 @@ void vtkBoreholeRepresentation::BuildRepresentation()
 
   this->Tube->Update();
   this->Clip->Update();
+
+  // If clipping produced an empty output, try flipping both clipping plane
+  // normals. This makes the representation resilient to plane-orientation
+  // convention differences.
+  if (this->Clip->GetOutput() && this->Clip->GetOutput()->GetNumberOfPoints() == 0)
+  {
+    double nTop[3];
+    double nBottom[3];
+    this->TopPlane->GetNormal(nTop);
+    this->BottomPlane->GetNormal(nBottom);
+    this->TopPlane->SetNormal(-nTop[0], -nTop[1], -nTop[2]);
+    this->BottomPlane->SetNormal(-nBottom[0], -nBottom[1], -nBottom[2]);
+    this->Clip->Update();
+  }
 }
 
 bool vtkBoreholeRepresentation::ComputePointAndTangent(double t, double point[3], double tangent[3]) const
