@@ -199,7 +199,8 @@ struct AppState
 void RebuildVolume(AppState* state)
 {
   double b[6];
-  state->BoxRep->GetBounds(b);
+  double* bounds = state->BoxRep->GetBounds();
+  std::copy(bounds, bounds + 6, b);
   const double cx = 0.5 * (b[0] + b[1]);
   const double cy = 0.5 * (b[2] + b[3]);
 
@@ -228,7 +229,8 @@ void OnSliderInteraction(vtkObject* caller, unsigned long, void* clientData, voi
   state->LayerPosition = rep->GetValue();
 
   double b[6];
-  state->BoxRep->GetBounds(b);
+  double* bounds = state->BoxRep->GetBounds();
+  std::copy(bounds, bounds + 6, b);
   const double cx = 0.5 * (b[0] + b[1]);
   const double cy = 0.5 * (b[2] + b[3]);
   const double zTop = state->Stack.SampleInterpolated(state->LayerPosition, cx, cy) + state->TopShift;
@@ -277,7 +279,7 @@ int main(int, char*[])
   boxWidget->SetInteractor(interactor);
 
   vtkNew<vtkBoxRepresentation> boxRep;
-  const double initBounds[6] = { 20.0, 75.0, 18.0, 78.0, 20.0, 55.0 };
+  double initBounds[6] = { 20.0, 75.0, 18.0, 78.0, 20.0, 55.0 };
   boxRep->PlaceWidget(initBounds);
   boxWidget->SetRepresentation(boxRep);
   boxWidget->GetRepresentation()->SetPlaceFactor(1.0);
