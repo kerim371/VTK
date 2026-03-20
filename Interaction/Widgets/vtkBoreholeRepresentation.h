@@ -29,7 +29,8 @@ class vtkPolyDataMapper;
 class vtkProp;
 class vtkProperty;
 class vtkSphereSource;
-class vtkBoreholeSurfaceFilter;
+class vtkRegularPolygonSource;
+class vtkTubeFilter;
 
 class VTKINTERACTIONWIDGETS_EXPORT VTK_MARSHALAUTO vtkBoreholeRepresentation
   : public vtkWidgetRepresentation
@@ -121,13 +122,19 @@ protected:
   double BottomPosition;
   double GlyphRadius;
 
-  vtkBoreholeSurfaceFilter* Tube;
+  vtkTubeFilter* Tube;
   vtkPlane* TopPlane;
   vtkPlane* BottomPlane;
   vtkPolyDataCollection* StructuralSurfaces;
 
   vtkPolyDataMapper* WallMapper;
   vtkActor* WallActor;
+  vtkPolyDataMapper* TopCapMapper;
+  vtkActor* TopCapActor;
+  vtkPolyDataMapper* BottomCapMapper;
+  vtkActor* BottomCapActor;
+  vtkRegularPolygonSource* TopCapSource;
+  vtkRegularPolygonSource* BottomCapSource;
 
   vtkPolyDataMapper* AxisMapper;
   vtkActor* AxisActor;
