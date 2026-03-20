@@ -45,7 +45,7 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   , CurrentOperation(DragNone)
 {
   this->Tube = vtkTubeFilter::New();
-  this->Tube->CappingOn();
+  this->Tube->CappingOff();
   this->Tube->SetNumberOfSides(32);
   this->Tube->SetRadius(this->Radius);
   this->IntervalTrajectory = vtkPolyData::New();
@@ -405,16 +405,6 @@ void vtkBoreholeRepresentation::UpdateCapActors()
   this->TopCapSource->SetCenter(topPoint);
   this->TopCapSource->SetNormal(-topNormal[0], -topNormal[1], -topNormal[2]);
   this->TopCapSource->SetRadius(this->Radius);
-
-  const double eps = std::max(1e-4, 1e-3 * this->Radius);
-  topPoint[0] -= eps * topNormal[0];
-  topPoint[1] -= eps * topNormal[1];
-  topPoint[2] -= eps * topNormal[2];
-  this->TopCapSource->SetCenter(topPoint);
-
-  bottomPoint[0] += eps * bottomNormal[0];
-  bottomPoint[1] += eps * bottomNormal[1];
-  bottomPoint[2] += eps * bottomNormal[2];
   this->BottomCapSource->SetCenter(bottomPoint);
   this->BottomCapSource->SetNormal(bottomNormal);
   this->BottomCapSource->SetRadius(this->Radius);
