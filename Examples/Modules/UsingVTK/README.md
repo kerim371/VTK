@@ -22,3 +22,23 @@ The demo opens a render window where you can:
   (configured from 3 synthetic horizons in the demo) using finite-difference
   sampling controlled by `SurfaceDx` / `SurfaceDy`.
 - glyph size is independent from tube diameter and configured via `GlyphRadius`.
+
+## Structural surface box widget demo
+
+This folder also contains `vtk_structural_surface_box_widget_demo`, an
+interactive demo for `vtkStructuralSurfaceBoxWidget` /
+`vtkStructuralSurfaceBoxRepresentation`.
+
+After configuring and building this example project, run:
+
+```sh
+./vtk_structural_surface_box_widget_demo
+```
+
+The demo opens a render window where you can:
+
+- drag the green side handles to resize the XY footprint;
+- drag the lower green handle to change the planar bottom depth;
+- drag the center handle or the translucent body to translate the ROI in XY;
+- see the top face resampled from the selected structural surface while the
+  side walls and bottom remain box-like.
