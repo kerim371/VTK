@@ -162,6 +162,8 @@ set(classes
   vtkSplineRepresentation
   vtkSplineWidget
   vtkSplineWidget2
+  vtkStructuralSurfaceBoxRepresentation
+  vtkStructuralSurfaceBoxWidget
   vtkTensorProbeRepresentation
   vtkTensorProbeWidget
   vtkTensorRepresentation

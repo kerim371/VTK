@@ -62,4 +62,27 @@ if (VTK_FOUND)
       VTK::InteractionWidgets
       VTK::RenderingCore
       VTK::RenderingOpenGL2)
+
+  add_executable(vtk_structural_surface_box_widget_demo structural_surface_box_widget_demo.cxx)
+  target_link_libraries(vtk_structural_surface_box_widget_demo
+    PRIVATE
+      VTK::CommonCore
+      VTK::CommonDataModel
+      VTK::FiltersCore
+      VTK::FiltersGeneral
+      VTK::InteractionStyle
+      VTK::InteractionWidgets
+      VTK::RenderingCore
+      VTK::RenderingOpenGL2)
+  vtk_module_autoinit(
+    TARGETS vtk_structural_surface_box_widget_demo
+    MODULES
+      VTK::CommonCore
+      VTK::CommonDataModel
+      VTK::FiltersCore
+      VTK::FiltersGeneral
+      VTK::InteractionStyle
+      VTK::InteractionWidgets
+      VTK::RenderingCore
+      VTK::RenderingOpenGL2)
 endif ()
