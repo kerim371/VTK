@@ -37,8 +37,10 @@ After configuring and building this example project, run:
 
 The demo opens a render window where you can:
 
-- drag the green side handles to resize the XY footprint;
-- drag the lower green handle to change the planar bottom depth;
-- drag the center handle or the translucent body to translate the ROI in XY;
+- drag the green arrow handles on the sides to resize the XY footprint;
+- drag the lower green arrow to change the planar bottom depth;
+- drag the translucent body to translate the ROI in XY;
+- keep the ROI constrained within the perimeter of the selected structural
+  surface;
 - see the top face resampled from the selected structural surface while the
-  side walls and bottom remain box-like.
+  side walls and bottom remain box-like, with white boundary edges only.
