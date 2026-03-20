@@ -28,6 +28,12 @@
 
 namespace
 {
+template <typename T>
+T ClampValue(const T& value, const T& low, const T& high)
+{
+  return value < low ? low : (value > high ? high : value);
+}
+
 class SurfaceStack
 {
 public:
@@ -41,17 +47,17 @@ public:
 
   double SampleLayer(int layer, double x, double y) const
   {
-    layer = std::clamp(layer, 0, static_cast<int>(this->Layers.size()) - 1);
+    layer = ClampValue(layer, 0, static_cast<int>(this->Layers.size()) - 1);
     const double gx = (x - this->X0) / this->Dx;
     const double gy = (y - this->Y0) / this->Dy;
 
-    const int i0 = std::clamp(static_cast<int>(std::floor(gx)), 0, this->Nx - 2);
-    const int j0 = std::clamp(static_cast<int>(std::floor(gy)), 0, this->Ny - 2);
+    const int i0 = ClampValue(static_cast<int>(std::floor(gx)), 0, this->Nx - 2);
+    const int j0 = ClampValue(static_cast<int>(std::floor(gy)), 0, this->Ny - 2);
     const int i1 = i0 + 1;
     const int j1 = j0 + 1;
 
-    const double tx = std::clamp(gx - i0, 0.0, 1.0);
-    const double ty = std::clamp(gy - j0, 0.0, 1.0);
+    const double tx = ClampValue(gx - i0, 0.0, 1.0);
+    const double ty = ClampValue(gy - j0, 0.0, 1.0);
 
     auto val = [&](int i, int j) { return this->Layers[layer][j * this->Nx + i]; };
 
@@ -68,7 +74,7 @@ public:
   double SampleInterpolated(double layerPosition, double x, double y) const
   {
     const int layerCount = static_cast<int>(this->Layers.size());
-    const double p = std::clamp(layerPosition, 0.0, static_cast<double>(layerCount - 1));
+    const double p = ClampValue(layerPosition, 0.0, static_cast<double>(layerCount - 1));
     const int k0 = static_cast<int>(std::floor(p));
     const int k1 = std::min(k0 + 1, layerCount - 1);
     const double tk = p - k0;

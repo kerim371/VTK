@@ -9,6 +9,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}"
 find_package(VTK
   COMPONENTS
     CommonCore
+    CommonColor
     FiltersGeneral
     IOXML
     ImagingHybrid
