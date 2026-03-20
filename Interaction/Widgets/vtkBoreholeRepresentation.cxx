@@ -406,20 +406,13 @@ void vtkBoreholeRepresentation::UpdateGlyphActors()
     return;
   }
 
-  double topNormal[3];
-  double bottomNormal[3];
-  this->TopPlane->GetNormal(topNormal);
-  this->BottomPlane->GetNormal(bottomNormal);
-  vtkMath::Normalize(topNormal);
-  vtkMath::Normalize(bottomNormal);
-
-  const double glyphOffset = this->GlyphRadius * 1.5;
-  topPoint[0] -= glyphOffset * topNormal[0];
-  topPoint[1] -= glyphOffset * topNormal[1];
-  topPoint[2] -= glyphOffset * topNormal[2];
-  bottomPoint[0] += glyphOffset * bottomNormal[0];
-  bottomPoint[1] += glyphOffset * bottomNormal[1];
-  bottomPoint[2] += glyphOffset * bottomNormal[2];
+  const double glyphOffset = this->GlyphRadius * 0.2;
+  topPoint[0] -= glyphOffset * topTangent[0];
+  topPoint[1] -= glyphOffset * topTangent[1];
+  topPoint[2] -= glyphOffset * topTangent[2];
+  bottomPoint[0] += glyphOffset * bottomTangent[0];
+  bottomPoint[1] += glyphOffset * bottomTangent[1];
+  bottomPoint[2] += glyphOffset * bottomTangent[2];
 
   this->TopGlyphSource->SetCenter(topPoint);
   this->TopGlyphSource->SetRadius(this->GlyphRadius);
