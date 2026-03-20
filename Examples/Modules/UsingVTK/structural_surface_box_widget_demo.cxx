@@ -43,7 +43,8 @@ vtkSmartPointer<vtkPolyData> MakeStructuralSurface(
     double p[3];
     pts->GetPoint(i, p);
     p[2] = zBase + ax * p[0] + ay * p[1] +
-      wave * std::sin(0.06 * p[0]) * std::cos(0.08 * p[1]);
+      wave * std::sin(0.08 * p[0]) * std::cos(0.11 * p[1]) +
+      0.45 * wave * std::cos(0.03 * (p[0] + p[1]));
     pts->SetPoint(i, p);
   }
   pts->Modified();
@@ -104,7 +105,7 @@ vtkSmartPointer<vtkActor> MakeTrajectoryActor(vtkPolyData* trajectory)
 int main(int, char*[])
 {
   vtkNew<vtkRenderer> renderer;
-  renderer->SetBackground(0.08, 0.11, 0.20);
+  renderer->SetBackground(0.93, 0.95, 0.98);
 
   vtkNew<vtkRenderWindow> renderWindow;
   renderWindow->SetWindowName("VTK Structural Surface Box Widget Demo");
@@ -118,20 +119,20 @@ int main(int, char*[])
   interactor->SetInteractorStyle(style);
 
   vtkNew<vtkPolyDataCollection> surfaces;
-  auto s0 = MakeStructuralSurface(18.0, 0.06, -0.03, 1.2, 70);
-  auto s1 = MakeStructuralSurface(28.0, 0.03, 0.015, 1.8, 70);
-  auto s2 = MakeStructuralSurface(40.0, -0.015, 0.04, 1.4, 70);
+  auto s0 = MakeStructuralSurface(12.0, 0.10, -0.06, 5.5, 90);
+  auto s1 = MakeStructuralSurface(42.0, 0.05, 0.03, 7.5, 90);
+  auto s2 = MakeStructuralSurface(82.0, -0.03, 0.07, 6.5, 90);
   surfaces->AddItem(s0);
   surfaces->AddItem(s1);
   surfaces->AddItem(s2);
 
   const std::array<std::array<double, 3>, 3> palette = {
-    std::array<double, 3>{ 0.4, 0.7, 1.0 }, std::array<double, 3>{ 0.6, 1.0, 0.65 },
-    std::array<double, 3>{ 1.0, 0.6, 0.55 }
+    std::array<double, 3>{ 0.25, 0.45, 0.95 }, std::array<double, 3>{ 0.20, 0.75, 0.35 },
+    std::array<double, 3>{ 0.95, 0.45, 0.25 }
   };
-  renderer->AddActor(MakeSurfaceActor(s0, palette[0].data(), 0.35));
-  renderer->AddActor(MakeSurfaceActor(s1, palette[1].data(), 0.35));
-  renderer->AddActor(MakeSurfaceActor(s2, palette[2].data(), 0.35));
+  renderer->AddActor(MakeSurfaceActor(s0, palette[0].data(), 0.28));
+  renderer->AddActor(MakeSurfaceActor(s1, palette[1].data(), 0.28));
+  renderer->AddActor(MakeSurfaceActor(s2, palette[2].data(), 0.28));
   renderer->AddActor(MakeTrajectoryActor(MakeOutlineTrajectory()));
 
   vtkNew<vtkStructuralSurfaceBoxRepresentation> rep;
@@ -140,8 +141,8 @@ int main(int, char*[])
   rep->SetActiveSurfaceIndex(1);
   rep->SetSamplingResolutionX(24);
   rep->SetSamplingResolutionY(24);
-  rep->SetFootprint(-18.0, 18.0, -22.0, 20.0);
-  rep->SetBottomZ(8.0);
+  rep->SetFootprint(-20.0, 20.0, -24.0, 24.0);
+  rep->SetBottomZ(12.0);
   rep->BuildRepresentation();
 
   vtkNew<vtkStructuralSurfaceBoxWidget> widget;

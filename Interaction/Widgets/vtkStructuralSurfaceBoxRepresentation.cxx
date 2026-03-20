@@ -11,6 +11,7 @@
 #include "vtkCellPicker.h"
 #include "vtkFeatureEdges.h"
 #include "vtkMath.h"
+#include "vtkMatrix4x4.h"
 #include "vtkNew.h"
 #include "vtkObjectFactory.h"
 #include "vtkPoints.h"
@@ -720,27 +721,40 @@ void vtkStructuralSurfaceBoxRepresentation::UpdateHandleGeometry(const double bo
     this->GetHandleAnchorPoint(i, anchor);
     this->GetHandleDirection(i, direction);
 
+    double xAxis[3] = { direction[0], direction[1], direction[2] };
+    vtkMath::Normalize(xAxis);
+
+    double reference[3] = { 0.0, 0.0, 1.0 };
+    if (std::abs(vtkMath::Dot(xAxis, reference)) > 0.95)
+    {
+      reference[0] = 0.0;
+      reference[1] = 1.0;
+      reference[2] = 0.0;
+    }
+
+    double yAxis[3];
+    vtkMath::Cross(reference, xAxis, yAxis);
+    vtkMath::Normalize(yAxis);
+
+    double zAxis[3];
+    vtkMath::Cross(xAxis, yAxis, zAxis);
+    vtkMath::Normalize(zAxis);
+
+    double origin[3] = { anchor[0] - 0.5 * length * xAxis[0], anchor[1] - 0.5 * length * xAxis[1],
+      anchor[2] - 0.5 * length * xAxis[2] };
+
+    vtkNew<vtkMatrix4x4> matrix;
+    matrix->Identity();
+    for (int row = 0; row < 3; ++row)
+    {
+      matrix->SetElement(row, 0, length * xAxis[row]);
+      matrix->SetElement(row, 1, width * yAxis[row]);
+      matrix->SetElement(row, 2, width * zAxis[row]);
+      matrix->SetElement(row, 3, origin[row]);
+    }
+
     vtkNew<vtkTransform> transform;
-    transform->PostMultiply();
-    transform->Translate(anchor);
-    if (i == 0)
-    {
-      transform->RotateZ(180.0);
-    }
-    else if (i == 2)
-    {
-      transform->RotateZ(-90.0);
-    }
-    else if (i == 3)
-    {
-      transform->RotateZ(90.0);
-    }
-    else if (i == 4)
-    {
-      transform->RotateY(-90.0);
-    }
-    transform->Scale(length, width, width);
-    transform->Translate(-0.5, 0.0, 0.0);
+    transform->SetMatrix(matrix);
 
     this->HandleTransformFilters[i]->SetTransform(transform);
     this->HandleTransformFilters[i]->Update();
