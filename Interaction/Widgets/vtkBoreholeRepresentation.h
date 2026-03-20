@@ -77,6 +77,9 @@ public:
   vtkSetClampMacro(SurfaceDy, double, 1e-6, VTK_DOUBLE_MAX);
   vtkGetMacro(SurfaceDy, double);
 
+  vtkSetClampMacro(GlyphRadius, double, 1e-6, VTK_DOUBLE_MAX);
+  vtkGetMacro(GlyphRadius, double);
+
   void BuildRepresentation() override;
 
   int ComputeInteractionState(int X, int Y, int modify = 0) override;
@@ -115,6 +118,7 @@ protected:
   double Radius;
   double TopPosition;
   double BottomPosition;
+  double GlyphRadius;
 
   vtkTubeFilter* Tube;
   vtkClipClosedSurface* Clip;

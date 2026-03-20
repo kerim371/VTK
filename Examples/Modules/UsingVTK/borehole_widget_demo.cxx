@@ -99,6 +99,7 @@ int main(int, char*[])
   rep->SetSurfaceDx(0.5);
   rep->SetSurfaceDy(0.5);
   rep->SetRadius(0.6);
+  rep->SetGlyphRadius(0.5);
   rep->SetTopPosition(0.15);
   rep->SetBottomPosition(0.85);
   rep->BuildRepresentation();

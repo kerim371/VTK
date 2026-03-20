@@ -33,6 +33,7 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   , Radius(1.0)
   , TopPosition(0.1)
   , BottomPosition(0.9)
+  , GlyphRadius(0.4)
   , TotalLength(0.0)
   , ActiveT(0.0)
   , DragInitialized(false)
@@ -405,11 +406,25 @@ void vtkBoreholeRepresentation::UpdateGlyphActors()
     return;
   }
 
-  const double glyphRadius = std::max(0.25 * this->Radius, 0.1);
+  double topNormal[3];
+  double bottomNormal[3];
+  this->TopPlane->GetNormal(topNormal);
+  this->BottomPlane->GetNormal(bottomNormal);
+  vtkMath::Normalize(topNormal);
+  vtkMath::Normalize(bottomNormal);
+
+  const double glyphOffset = this->GlyphRadius * 1.5;
+  topPoint[0] -= glyphOffset * topNormal[0];
+  topPoint[1] -= glyphOffset * topNormal[1];
+  topPoint[2] -= glyphOffset * topNormal[2];
+  bottomPoint[0] += glyphOffset * bottomNormal[0];
+  bottomPoint[1] += glyphOffset * bottomNormal[1];
+  bottomPoint[2] += glyphOffset * bottomNormal[2];
+
   this->TopGlyphSource->SetCenter(topPoint);
-  this->TopGlyphSource->SetRadius(glyphRadius);
+  this->TopGlyphSource->SetRadius(this->GlyphRadius);
   this->BottomGlyphSource->SetCenter(bottomPoint);
-  this->BottomGlyphSource->SetRadius(glyphRadius);
+  this->BottomGlyphSource->SetRadius(this->GlyphRadius);
 }
 
 bool vtkBoreholeRepresentation::PickWorldPoint(int X, int Y, double worldPt[3])
@@ -875,6 +890,7 @@ void vtkBoreholeRepresentation::PrintSelf(ostream& os, vtkIndent indent)
 {
   this->Superclass::PrintSelf(os, indent);
   os << indent << "Radius: " << this->Radius << "\n";
+  os << indent << "GlyphRadius: " << this->GlyphRadius << "\n";
   os << indent << "TopPosition: " << this->TopPosition << "\n";
   os << indent << "BottomPosition: " << this->BottomPosition << "\n";
 }
