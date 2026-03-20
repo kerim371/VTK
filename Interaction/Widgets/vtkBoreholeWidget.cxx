@@ -3,6 +3,7 @@
 #include "vtkBoreholeWidget.h"
 
 #include "vtkBoreholeRepresentation.h"
+#include "vtkCallbackCommand.h"
 #include "vtkCommand.h"
 #include "vtkObjectFactory.h"
 #include "vtkRenderWindowInteractor.h"
