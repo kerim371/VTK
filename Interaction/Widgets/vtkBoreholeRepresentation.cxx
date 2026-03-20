@@ -17,11 +17,13 @@
 #include "vtkPropCollection.h"
 #include "vtkRegularPolygonSource.h"
 #include "vtkRenderer.h"
+#include "vtkSphereSource.h"
 #include "vtkTubeFilter.h"
 #include "vtkViewport.h"
 #include "vtkWindow.h"
 
 #include <algorithm>
+#include <cmath>
 
 VTK_ABI_NAMESPACE_BEGIN
 vtkStandardNewMacro(vtkBoreholeRepresentation);
@@ -78,6 +80,26 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   this->BottomCapActor = vtkActor::New();
   this->BottomCapActor->SetMapper(this->BottomCapMapper);
 
+  this->AxisMapper = vtkPolyDataMapper::New();
+  this->AxisActor = vtkActor::New();
+  this->AxisActor->SetMapper(this->AxisMapper);
+
+  this->TopGlyphSource = vtkSphereSource::New();
+  this->TopGlyphSource->SetThetaResolution(24);
+  this->TopGlyphSource->SetPhiResolution(24);
+  this->TopGlyphMapper = vtkPolyDataMapper::New();
+  this->TopGlyphMapper->SetInputConnection(this->TopGlyphSource->GetOutputPort());
+  this->TopGlyphActor = vtkActor::New();
+  this->TopGlyphActor->SetMapper(this->TopGlyphMapper);
+
+  this->BottomGlyphSource = vtkSphereSource::New();
+  this->BottomGlyphSource->SetThetaResolution(24);
+  this->BottomGlyphSource->SetPhiResolution(24);
+  this->BottomGlyphMapper = vtkPolyDataMapper::New();
+  this->BottomGlyphMapper->SetInputConnection(this->BottomGlyphSource->GetOutputPort());
+  this->BottomGlyphActor = vtkActor::New();
+  this->BottomGlyphActor->SetMapper(this->BottomGlyphMapper);
+
   this->DefaultWallProperty = vtkProperty::New();
   this->DefaultWallProperty->SetColor(0.8, 0.8, 0.9);
   this->SelectedWallProperty = vtkProperty::New();
@@ -90,9 +112,21 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   this->SelectedCapProperty->SetColor(1.0, 0.4, 0.1);
   this->SelectedCapProperty->SetOpacity(0.8);
 
+  this->AxisProperty = vtkProperty::New();
+  this->AxisProperty->SetColor(0.95, 0.95, 0.95);
+  this->AxisProperty->SetLineWidth(3.0);
+
+  this->DefaultGlyphProperty = vtkProperty::New();
+  this->DefaultGlyphProperty->SetColor(0.3, 1.0, 0.3);
+  this->SelectedGlyphProperty = vtkProperty::New();
+  this->SelectedGlyphProperty->SetColor(1.0, 1.0, 0.1);
+
   this->WallActor->SetProperty(this->DefaultWallProperty);
   this->TopCapActor->SetProperty(this->DefaultCapProperty);
   this->BottomCapActor->SetProperty(this->DefaultCapProperty);
+  this->AxisActor->SetProperty(this->AxisProperty);
+  this->TopGlyphActor->SetProperty(this->DefaultGlyphProperty);
+  this->BottomGlyphActor->SetProperty(this->DefaultGlyphProperty);
 
   this->Picker = vtkCellPicker::New();
   this->Picker->SetTolerance(0.005);
@@ -122,10 +156,21 @@ vtkBoreholeRepresentation::~vtkBoreholeRepresentation()
   this->BottomCapSource->Delete();
   this->BottomCapMapper->Delete();
   this->BottomCapActor->Delete();
+  this->AxisMapper->Delete();
+  this->AxisActor->Delete();
+  this->TopGlyphSource->Delete();
+  this->TopGlyphMapper->Delete();
+  this->TopGlyphActor->Delete();
+  this->BottomGlyphSource->Delete();
+  this->BottomGlyphMapper->Delete();
+  this->BottomGlyphActor->Delete();
   this->DefaultWallProperty->Delete();
   this->SelectedWallProperty->Delete();
   this->DefaultCapProperty->Delete();
   this->SelectedCapProperty->Delete();
+  this->AxisProperty->Delete();
+  this->DefaultGlyphProperty->Delete();
+  this->SelectedGlyphProperty->Delete();
   this->Picker->Delete();
 }
 
@@ -165,10 +210,12 @@ void vtkBoreholeRepresentation::SetInputData(vtkPolyData* polyData)
   {
     this->Input->Register(this);
     this->Tube->SetInputData(this->Input);
+    this->AxisMapper->SetInputData(this->Input);
   }
   else
   {
     this->Tube->SetInputData(nullptr);
+    this->AxisMapper->SetInputData(nullptr);
   }
 
   this->Modified();
@@ -224,6 +271,7 @@ void vtkBoreholeRepresentation::BuildRepresentation()
 
   this->UpdateClippingPlanes();
   this->UpdateCapActors();
+  this->UpdateGlyphActors();
 
   this->Tube->Update();
   this->Clip->Update();
@@ -240,6 +288,7 @@ void vtkBoreholeRepresentation::BuildRepresentation()
     this->TopPlane->SetNormal(-nTop[0], -nTop[1], -nTop[2]);
     this->BottomPlane->SetNormal(-nBottom[0], -nBottom[1], -nBottom[2]);
     this->UpdateCapActors();
+    this->UpdateGlyphActors();
     this->Clip->Update();
   }
 }
@@ -342,6 +391,25 @@ void vtkBoreholeRepresentation::UpdateCapActors()
   this->BottomCapSource->SetCenter(bottomPoint);
   this->BottomCapSource->SetNormal(bottomNormal);
   this->BottomCapSource->SetRadius(this->Radius);
+}
+
+void vtkBoreholeRepresentation::UpdateGlyphActors()
+{
+  double topPoint[3];
+  double topTangent[3];
+  double bottomPoint[3];
+  double bottomTangent[3];
+  if (!this->ComputePointAndTangent(this->TopPosition, topPoint, topTangent) ||
+    !this->ComputePointAndTangent(this->BottomPosition, bottomPoint, bottomTangent))
+  {
+    return;
+  }
+
+  const double glyphRadius = std::max(0.25 * this->Radius, 0.1);
+  this->TopGlyphSource->SetCenter(topPoint);
+  this->TopGlyphSource->SetRadius(glyphRadius);
+  this->BottomGlyphSource->SetCenter(bottomPoint);
+  this->BottomGlyphSource->SetRadius(glyphRadius);
 }
 
 bool vtkBoreholeRepresentation::PickWorldPoint(int X, int Y, double worldPt[3])
@@ -562,15 +630,15 @@ int vtkBoreholeRepresentation::ComputeInteractionState(int X, int Y, int vtkNotU
   int state = Outside;
   double worldPt[3];
   vtkProp* prop = nullptr;
-  if (this->PickWorldPointFromProps(X, Y, this->TopCapActor, this->BottomCapActor, worldPt, &prop))
+  if (this->PickWorldPointFromProps(X, Y, this->TopGlyphActor, this->BottomGlyphActor, worldPt, &prop))
   {
-    if (prop == this->TopCapActor)
+    if (prop == this->TopGlyphActor)
     {
-      state = OverTopCap;
+      state = OverTopGlyph;
     }
-    else if (prop == this->BottomCapActor)
+    else if (prop == this->BottomGlyphActor)
     {
-      state = OverBottomCap;
+      state = OverBottomGlyph;
     }
   }
   else if (this->PickWorldPointFromProps(X, Y, this->WallActor, nullptr, worldPt, &prop) &&
@@ -605,11 +673,11 @@ void vtkBoreholeRepresentation::StartWidgetInteraction(double eventPos[2])
   bool picked = false;
   if (this->CurrentOperation == DragTopCap)
   {
-    picked = this->PickWorldPointFromProps(x, y, this->TopCapActor, nullptr, worldPt, nullptr);
+    picked = this->PickWorldPointFromProps(x, y, this->AxisActor, nullptr, worldPt, nullptr);
   }
   else if (this->CurrentOperation == DragBottomCap)
   {
-    picked = this->PickWorldPointFromProps(x, y, this->BottomCapActor, nullptr, worldPt, nullptr);
+    picked = this->PickWorldPointFromProps(x, y, this->AxisActor, nullptr, worldPt, nullptr);
   }
   else if (this->CurrentOperation == DragWallRadius)
   {
@@ -650,11 +718,11 @@ void vtkBoreholeRepresentation::WidgetInteraction(double newEventPos[2])
   bool picked = false;
   if (this->CurrentOperation == DragTopCap)
   {
-    picked = this->PickWorldPointFromProps(x, y, this->TopCapActor, nullptr, worldPt, nullptr);
+    picked = this->PickWorldPointFromProps(x, y, this->AxisActor, nullptr, worldPt, nullptr);
   }
   else if (this->CurrentOperation == DragBottomCap)
   {
-    picked = this->PickWorldPointFromProps(x, y, this->BottomCapActor, nullptr, worldPt, nullptr);
+    picked = this->PickWorldPointFromProps(x, y, this->AxisActor, nullptr, worldPt, nullptr);
   }
   else if (this->CurrentOperation == DragWallRadius)
   {
@@ -675,28 +743,24 @@ void vtkBoreholeRepresentation::WidgetInteraction(double newEventPos[2])
     return;
   }
 
-  const double delta[3] = { worldPt[0] - this->LastPickPosition[0], worldPt[1] - this->LastPickPosition[1],
-    worldPt[2] - this->LastPickPosition[2] };
   const double minGap = 1e-4;
   if (this->CurrentOperation == DragTopCap)
   {
-    double p[3];
-    double tangent[3];
-    if (this->ComputePointAndTangent(this->ActiveT, p, tangent))
+    double t = 0.0;
+    double distance = 0.0;
+    if (this->ComputeClosestOnTrajectory(worldPt, t, distance))
     {
-      const double ds = vtkMath::Dot(delta, tangent) / std::max(this->TotalLength, 1e-12);
-      this->ActiveT = std::clamp(this->ActiveT + ds, 0.0, this->BottomPosition - minGap);
+      this->ActiveT = std::clamp(t, 0.0, this->BottomPosition - minGap);
       this->TopPosition = this->ActiveT;
     }
   }
   else if (this->CurrentOperation == DragBottomCap)
   {
-    double p[3];
-    double tangent[3];
-    if (this->ComputePointAndTangent(this->ActiveT, p, tangent))
+    double t = 0.0;
+    double distance = 0.0;
+    if (this->ComputeClosestOnTrajectory(worldPt, t, distance))
     {
-      const double ds = vtkMath::Dot(delta, tangent) / std::max(this->TotalLength, 1e-12);
-      this->ActiveT = std::clamp(this->ActiveT + ds, this->TopPosition + minGap, 1.0);
+      this->ActiveT = std::clamp(t, this->TopPosition + minGap, 1.0);
       this->BottomPosition = this->ActiveT;
     }
   }
@@ -706,7 +770,20 @@ void vtkBoreholeRepresentation::WidgetInteraction(double newEventPos[2])
     double tangent[3];
     if (this->ComputePointAndTangent(this->ActiveT, center, tangent))
     {
-      this->Radius = std::max(std::sqrt(vtkMath::Distance2BetweenPoints(worldPt, center)), 1e-6);
+      double displayCenter[3];
+      this->Renderer->SetWorldPoint(center[0], center[1], center[2], 1.0);
+      this->Renderer->WorldToDisplay();
+      this->Renderer->GetDisplayPoint(displayCenter);
+
+      this->Renderer->SetDisplayPoint(newEventPos[0], newEventPos[1], displayCenter[2]);
+      this->Renderer->DisplayToWorld();
+      double world4[4];
+      this->Renderer->GetWorldPoint(world4);
+      if (std::abs(world4[3]) > 1e-12)
+      {
+        const double worldCursor[3] = { world4[0] / world4[3], world4[1] / world4[3], world4[2] / world4[3] };
+        this->Radius = std::max(std::sqrt(vtkMath::Distance2BetweenPoints(worldCursor, center)), 1e-6);
+      }
     }
   }
 
@@ -727,9 +804,10 @@ void vtkBoreholeRepresentation::EndWidgetInteraction(double vtkNotUsed(newEventP
 void vtkBoreholeRepresentation::HighlightPart(int state)
 {
   this->WallActor->SetProperty(state == OverWall ? this->SelectedWallProperty : this->DefaultWallProperty);
-  this->TopCapActor->SetProperty(state == OverTopCap ? this->SelectedCapProperty : this->DefaultCapProperty);
-  this->BottomCapActor->SetProperty(
-    state == OverBottomCap ? this->SelectedCapProperty : this->DefaultCapProperty);
+  this->TopGlyphActor->SetProperty(
+    state == OverTopGlyph ? this->SelectedGlyphProperty : this->DefaultGlyphProperty);
+  this->BottomGlyphActor->SetProperty(
+    state == OverBottomGlyph ? this->SelectedGlyphProperty : this->DefaultGlyphProperty);
 }
 
 double* vtkBoreholeRepresentation::GetBounds()
@@ -740,42 +818,57 @@ double* vtkBoreholeRepresentation::GetBounds()
 
 void vtkBoreholeRepresentation::GetActors(vtkPropCollection* pc)
 {
+  pc->AddItem(this->AxisActor);
   pc->AddItem(this->WallActor);
   pc->AddItem(this->TopCapActor);
   pc->AddItem(this->BottomCapActor);
+  pc->AddItem(this->TopGlyphActor);
+  pc->AddItem(this->BottomGlyphActor);
 }
 
 void vtkBoreholeRepresentation::ReleaseGraphicsResources(vtkWindow* w)
 {
+  this->AxisActor->ReleaseGraphicsResources(w);
   this->WallActor->ReleaseGraphicsResources(w);
   this->TopCapActor->ReleaseGraphicsResources(w);
   this->BottomCapActor->ReleaseGraphicsResources(w);
+  this->TopGlyphActor->ReleaseGraphicsResources(w);
+  this->BottomGlyphActor->ReleaseGraphicsResources(w);
 }
 
 int vtkBoreholeRepresentation::RenderOpaqueGeometry(vtkViewport* viewport)
 {
   this->BuildRepresentation();
   int count = 0;
+  count += this->AxisActor->RenderOpaqueGeometry(viewport);
   count += this->WallActor->RenderOpaqueGeometry(viewport);
   count += this->TopCapActor->RenderOpaqueGeometry(viewport);
   count += this->BottomCapActor->RenderOpaqueGeometry(viewport);
+  count += this->TopGlyphActor->RenderOpaqueGeometry(viewport);
+  count += this->BottomGlyphActor->RenderOpaqueGeometry(viewport);
   return count;
 }
 
 int vtkBoreholeRepresentation::RenderTranslucentPolygonalGeometry(vtkViewport* viewport)
 {
   int count = 0;
+  count += this->AxisActor->RenderTranslucentPolygonalGeometry(viewport);
   count += this->WallActor->RenderTranslucentPolygonalGeometry(viewport);
   count += this->TopCapActor->RenderTranslucentPolygonalGeometry(viewport);
   count += this->BottomCapActor->RenderTranslucentPolygonalGeometry(viewport);
+  count += this->TopGlyphActor->RenderTranslucentPolygonalGeometry(viewport);
+  count += this->BottomGlyphActor->RenderTranslucentPolygonalGeometry(viewport);
   return count;
 }
 
 vtkTypeBool vtkBoreholeRepresentation::HasTranslucentPolygonalGeometry()
 {
-  return this->WallActor->HasTranslucentPolygonalGeometry() ||
+  return this->AxisActor->HasTranslucentPolygonalGeometry() ||
+    this->WallActor->HasTranslucentPolygonalGeometry() ||
     this->TopCapActor->HasTranslucentPolygonalGeometry() ||
-    this->BottomCapActor->HasTranslucentPolygonalGeometry();
+    this->BottomCapActor->HasTranslucentPolygonalGeometry() ||
+    this->TopGlyphActor->HasTranslucentPolygonalGeometry() ||
+    this->BottomGlyphActor->HasTranslucentPolygonalGeometry();
 }
 
 void vtkBoreholeRepresentation::PrintSelf(ostream& os, vtkIndent indent)

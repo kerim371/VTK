@@ -30,6 +30,7 @@ class vtkPolyDataCollection;
 class vtkPolyDataMapper;
 class vtkProp;
 class vtkProperty;
+class vtkSphereSource;
 class vtkRegularPolygonSource;
 class vtkTubeFilter;
 
@@ -45,8 +46,8 @@ public:
   {
     Outside = 0,
     OverWall,
-    OverTopCap,
-    OverBottomCap
+    OverTopGlyph,
+    OverBottomGlyph
   };
 
   enum DragOperationType
@@ -107,6 +108,7 @@ protected:
   bool EvaluateSurfaceHeightAtXY(vtkPolyData* surface, double x, double y, double& z) const;
   void UpdateClippingPlanes();
   void UpdateCapActors();
+  void UpdateGlyphActors();
 
   vtkPolyData* Input;
 
@@ -132,10 +134,22 @@ protected:
   vtkPolyDataMapper* BottomCapMapper;
   vtkActor* BottomCapActor;
 
+  vtkPolyDataMapper* AxisMapper;
+  vtkActor* AxisActor;
+  vtkSphereSource* TopGlyphSource;
+  vtkPolyDataMapper* TopGlyphMapper;
+  vtkActor* TopGlyphActor;
+  vtkSphereSource* BottomGlyphSource;
+  vtkPolyDataMapper* BottomGlyphMapper;
+  vtkActor* BottomGlyphActor;
+
   vtkProperty* DefaultWallProperty;
   vtkProperty* SelectedWallProperty;
   vtkProperty* DefaultCapProperty;
   vtkProperty* SelectedCapProperty;
+  vtkProperty* AxisProperty;
+  vtkProperty* DefaultGlyphProperty;
+  vtkProperty* SelectedGlyphProperty;
 
   vtkCellPicker* Picker;
 

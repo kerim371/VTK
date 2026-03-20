@@ -58,11 +58,11 @@ void vtkBoreholeWidget::SelectAction(vtkAbstractWidget* w)
   const int state = rep->ComputeInteractionState(eventPos[0], eventPos[1]);
 
   int op = vtkBoreholeRepresentation::DragNone;
-  if (state == vtkBoreholeRepresentation::OverTopCap)
+  if (state == vtkBoreholeRepresentation::OverTopGlyph)
   {
     op = vtkBoreholeRepresentation::DragTopCap;
   }
-  else if (state == vtkBoreholeRepresentation::OverBottomCap)
+  else if (state == vtkBoreholeRepresentation::OverBottomGlyph)
   {
     op = vtkBoreholeRepresentation::DragBottomCap;
   }
