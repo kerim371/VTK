@@ -418,14 +418,6 @@ void vtkBoreholeRepresentation::UpdateCapActors()
     return;
   }
 
-  const double eps = std::max(1e-6, 1e-4 * this->Radius);
-  topPoint[0] -= eps * topNormal[0];
-  topPoint[1] -= eps * topNormal[1];
-  topPoint[2] -= eps * topNormal[2];
-  bottomPoint[0] += eps * bottomNormal[0];
-  bottomPoint[1] += eps * bottomNormal[1];
-  bottomPoint[2] += eps * bottomNormal[2];
-
   this->TopCapSource->SetCenter(topPoint);
   this->TopCapSource->SetNormal(-topNormal[0], -topNormal[1], -topNormal[2]);
   this->TopCapSource->SetRadius(this->Radius);
