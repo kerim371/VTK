@@ -9,12 +9,15 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}"
 find_package(VTK
   COMPONENTS
     CommonCore
+    CommonColor
     FiltersGeneral
     IOXML
     ImagingHybrid
     InteractionStyle
     RenderingCore
     RenderingOpenGL2
+    CommonDataModel
+    InteractionWidgets
     vtksys
   OPTIONAL_COMPONENTS
     TestingRendering)
@@ -32,10 +35,14 @@ target_link_libraries(Delaunay3D PRIVATE ${VTK_LIBRARIES})
 add_executable(Delaunay3DAlpha MACOSX_BUNDLE Delaunay3DAlpha.cxx)
 target_link_libraries(Delaunay3DAlpha PRIVATE ${VTK_LIBRARIES})
 
+add_executable(GeophysicalSurfaceBoxWidget MACOSX_BUNDLE GeophysicalSurfaceBoxWidget.cxx)
+target_link_libraries(GeophysicalSurfaceBoxWidget PRIVATE ${VTK_LIBRARIES})
+
 vtk_module_autoinit(
   TARGETS finance
           Delaunay3D
           Delaunay3DAlpha
+          GeophysicalSurfaceBoxWidget
   MODULES ${VTK_LIBRARIES})
 
 if (BUILD_TESTING)
