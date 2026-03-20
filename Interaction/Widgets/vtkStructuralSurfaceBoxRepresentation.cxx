@@ -110,6 +110,7 @@ vtkStructuralSurfaceBoxRepresentation::vtkStructuralSurfaceBoxRepresentation()
   , SamplingResolutionY(12)
   , TopInterpolation(0.2)
   , BottomInterpolation(0.8)
+  , HandleRadius(1.0)
   , InteractionInterpolationOffset(0.0)
 {
   this->Footprint[0] = -10.0;
@@ -788,17 +789,13 @@ void vtkStructuralSurfaceBoxRepresentation::GetHandleAnchorPoint(int handleId, d
 
 void vtkStructuralSurfaceBoxRepresentation::UpdateHandleGeometry(const double bounds[6])
 {
-  const double dx = bounds[1] - bounds[0];
-  const double dy = bounds[3] - bounds[2];
-  const double dz = std::max(bounds[5] - bounds[4], 1.0);
-  const double radius = 0.025 * std::sqrt(dx * dx + dy * dy + dz * dz);
-
+  (void)bounds;
   for (int i = 0; i < NumberOfHandles; ++i)
   {
     double anchor[3];
     this->GetHandleAnchorPoint(i, anchor);
     this->HandleSources[i]->SetCenter(anchor);
-    this->HandleSources[i]->SetRadius(radius);
+    this->HandleSources[i]->SetRadius(this->HandleRadius);
     this->HandleSources[i]->Update();
   }
 }
@@ -905,33 +902,30 @@ void vtkStructuralSurfaceBoxRepresentation::BuildRepresentation()
   outlinePoints->DeepCopy(surfacePoints);
   vtkNew<vtkCellArray> outlineLines;
 
-  vtkNew<vtkIdList> topLoop;
-  for (int i = 0; i <= nx; ++i)
-  {
-    topLoop->InsertNextId(i);
-  }
-  for (int j = 1; j <= ny; ++j)
-  {
-    topLoop->InsertNextId(static_cast<vtkIdType>(j) * (nx + 1) + nx);
-  }
-  for (int i = nx - 1; i >= 0; --i)
-  {
-    topLoop->InsertNextId(static_cast<vtkIdType>(ny) * (nx + 1) + i);
-  }
-  for (int j = ny - 1; j >= 1; --j)
-  {
-    topLoop->InsertNextId(static_cast<vtkIdType>(j) * (nx + 1));
-  }
-  topLoop->InsertNextId(0);
-  outlineLines->InsertNextCell(topLoop);
+  auto appendPerimeterLoop = [&](vtkIdType offset) {
+    vtkNew<vtkIdList> loop;
+    for (int i = 0; i <= nx; ++i)
+    {
+      loop->InsertNextId(offset + i);
+    }
+    for (int j = 1; j <= ny; ++j)
+    {
+      loop->InsertNextId(offset + static_cast<vtkIdType>(j) * (nx + 1) + nx);
+    }
+    for (int i = nx - 1; i >= 0; --i)
+    {
+      loop->InsertNextId(offset + static_cast<vtkIdType>(ny) * (nx + 1) + i);
+    }
+    for (int j = ny - 1; j >= 1; --j)
+    {
+      loop->InsertNextId(offset + static_cast<vtkIdType>(j) * (nx + 1));
+    }
+    loop->InsertNextId(offset);
+    outlineLines->InsertNextCell(loop);
+  };
 
-  vtkNew<vtkIdList> bottomLoop;
-  bottomLoop->InsertNextId(planeSize);
-  bottomLoop->InsertNextId(planeSize + nx);
-  bottomLoop->InsertNextId(planeSize + static_cast<vtkIdType>(ny) * (nx + 1) + nx);
-  bottomLoop->InsertNextId(planeSize + static_cast<vtkIdType>(ny) * (nx + 1));
-  bottomLoop->InsertNextId(planeSize);
-  outlineLines->InsertNextCell(bottomLoop);
+  appendPerimeterLoop(0);
+  appendPerimeterLoop(planeSize);
 
   const int verticalEdgeResolution = std::max(2, std::max(nx, ny) / 2);
   const std::array<std::array<double, 2>, 4> cornerXY = { std::array<double, 2>{ this->Footprint[0], this->Footprint[2] },

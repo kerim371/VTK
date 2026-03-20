@@ -72,6 +72,8 @@ public:
   vtkGetMacro(TopInterpolation, double);
   vtkSetClampMacro(BottomInterpolation, double, 0.0, 1.0);
   vtkGetMacro(BottomInterpolation, double);
+  vtkSetClampMacro(HandleRadius, double, 1e-6, VTK_DOUBLE_MAX);
+  vtkGetMacro(HandleRadius, double);
 
   void SetFootprint(double xmin, double xmax, double ymin, double ymax);
 
@@ -123,6 +125,7 @@ protected:
   int SamplingResolutionY;
   double TopInterpolation;
   double BottomInterpolation;
+  double HandleRadius;
   double InteractionInterpolationOffset;
   double Footprint[4];
   double LastPickPosition[3];
