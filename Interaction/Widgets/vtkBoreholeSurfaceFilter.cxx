@@ -296,23 +296,6 @@ int vtkBoreholeSurfaceFilter::RequestData(
         p[k] = c[k] + this->Radius * (cs * nCur[k] + sn * bCur[k]);
       }
 
-      if (i == 0)
-      {
-        double z = 0.0;
-        if (this->EvaluateSurfaceHeight(this->TopSurface, p[0], p[1], z))
-        {
-          p[2] = z;
-        }
-      }
-      else if (i == axialSegments)
-      {
-        double z = 0.0;
-        if (this->EvaluateSurfaceHeight(this->BottomSurface, p[0], p[1], z))
-        {
-          p[2] = z;
-        }
-      }
-
       const size_t idx = static_cast<size_t>((i * ringSize + j) * 3);
       ringPts[idx + 0] = p[0];
       ringPts[idx + 1] = p[1];
@@ -366,6 +349,17 @@ int vtkBoreholeSurfaceFilter::RequestData(
   {
     topCenter[k] /= ringSize;
     bottomCenter[k] /= ringSize;
+  }
+
+  double zTop = 0.0;
+  if (this->EvaluateSurfaceHeight(this->TopSurface, topCenter[0], topCenter[1], zTop))
+  {
+    topCenter[2] = zTop;
+  }
+  double zBottom = 0.0;
+  if (this->EvaluateSurfaceHeight(this->BottomSurface, bottomCenter[0], bottomCenter[1], zBottom))
+  {
+    bottomCenter[2] = zBottom;
   }
 
   const vtkIdType topCenterId = outPts->InsertNextPoint(topCenter);
