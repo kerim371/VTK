@@ -48,7 +48,7 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
 {
   this->Tube = vtkTubeFilter::New();
   this->Tube->CappingOff();
-  this->Tube->SetNumberOfSides(32);
+  this->Tube->SetNumberOfSides(96);
   this->Tube->SetRadius(this->Radius);
   this->IntervalTrajectory = vtkPolyData::New();
 
@@ -79,7 +79,7 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   this->TopCapTriangulator = vtkContourTriangulator::New();
   this->TopCapTriangulator->SetInputConnection(this->TopCapCutter->GetOutputPort());
   this->TopCapMapper = vtkPolyDataMapper::New();
-  this->TopCapMapper->SetInputConnection(this->TopCapTriangulator->GetOutputPort());
+  this->TopCapMapper->SetInputConnection(this->TopCapSource->GetOutputPort());
   this->TopCapActor = vtkActor::New();
   this->TopCapActor->SetMapper(this->TopCapMapper);
 
@@ -93,7 +93,7 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   this->BottomCapTriangulator = vtkContourTriangulator::New();
   this->BottomCapTriangulator->SetInputConnection(this->BottomCapCutter->GetOutputPort());
   this->BottomCapMapper = vtkPolyDataMapper::New();
-  this->BottomCapMapper->SetInputConnection(this->BottomCapTriangulator->GetOutputPort());
+  this->BottomCapMapper->SetInputConnection(this->BottomCapSource->GetOutputPort());
   this->BottomCapActor = vtkActor::New();
   this->BottomCapActor->SetMapper(this->BottomCapMapper);
 
@@ -124,7 +124,7 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
 
   this->DefaultCapProperty = vtkProperty::New();
   this->DefaultCapProperty->SetColor(0.7, 0.8, 1.0);
-  this->DefaultCapProperty->SetOpacity(0.6);
+  this->DefaultCapProperty->SetOpacity(1.0);
   this->SelectedCapProperty = vtkProperty::New();
   this->SelectedCapProperty->SetColor(1.0, 0.4, 0.1);
   this->SelectedCapProperty->SetOpacity(0.8);
@@ -405,8 +405,33 @@ void vtkBoreholeRepresentation::UpdateClippingPlanes()
 
 void vtkBoreholeRepresentation::UpdateCapActors()
 {
-  this->TopCapCutter->Modified();
-  this->BottomCapCutter->Modified();
+  double topPoint[3];
+  double bottomPoint[3];
+  double topNormal[3];
+  double bottomNormal[3];
+  this->TopPlane->GetOrigin(topPoint);
+  this->BottomPlane->GetOrigin(bottomPoint);
+  this->TopPlane->GetNormal(topNormal);
+  this->BottomPlane->GetNormal(bottomNormal);
+  if (vtkMath::Norm(topNormal) <= 0.0 || vtkMath::Norm(bottomNormal) <= 0.0)
+  {
+    return;
+  }
+
+  const double eps = std::max(1e-6, 1e-4 * this->Radius);
+  topPoint[0] -= eps * topNormal[0];
+  topPoint[1] -= eps * topNormal[1];
+  topPoint[2] -= eps * topNormal[2];
+  bottomPoint[0] += eps * bottomNormal[0];
+  bottomPoint[1] += eps * bottomNormal[1];
+  bottomPoint[2] += eps * bottomNormal[2];
+
+  this->TopCapSource->SetCenter(topPoint);
+  this->TopCapSource->SetNormal(-topNormal[0], -topNormal[1], -topNormal[2]);
+  this->TopCapSource->SetRadius(this->Radius);
+  this->BottomCapSource->SetCenter(bottomPoint);
+  this->BottomCapSource->SetNormal(bottomNormal);
+  this->BottomCapSource->SetRadius(this->Radius);
 }
 
 void vtkBoreholeRepresentation::UpdateGlyphActors()
