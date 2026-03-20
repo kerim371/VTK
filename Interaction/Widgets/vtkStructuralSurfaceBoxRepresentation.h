@@ -22,7 +22,6 @@
 
 VTK_ABI_NAMESPACE_BEGIN
 class vtkActor;
-class vtkArrowSource;
 class vtkCellLocator;
 class vtkCellPicker;
 class vtkPolyData;
@@ -30,7 +29,7 @@ class vtkPolyDataCollection;
 class vtkPolyDataMapper;
 class vtkPropCollection;
 class vtkProperty;
-class vtkTransformPolyDataFilter;
+class vtkSphereSource;
 class vtkTriangleFilter;
 class vtkViewport;
 class vtkWindow;
@@ -50,6 +49,7 @@ public:
     AdjustXMax,
     AdjustYMin,
     AdjustYMax,
+    AdjustTop,
     AdjustBottom,
     Translating
   };
@@ -59,15 +59,20 @@ public:
 
   vtkSetClampMacro(ActiveSurfaceIndex, int, 0, VTK_INT_MAX);
   vtkGetMacro(ActiveSurfaceIndex, int);
+  vtkSetClampMacro(LowerSurfaceIndex, int, 0, VTK_INT_MAX);
+  vtkGetMacro(LowerSurfaceIndex, int);
 
   vtkSetClampMacro(SamplingResolutionX, int, 1, VTK_INT_MAX);
   vtkGetMacro(SamplingResolutionX, int);
   vtkSetClampMacro(SamplingResolutionY, int, 1, VTK_INT_MAX);
   vtkGetMacro(SamplingResolutionY, int);
 
+  vtkSetClampMacro(TopInterpolation, double, 0.0, 1.0);
+  vtkGetMacro(TopInterpolation, double);
+  vtkSetClampMacro(BottomInterpolation, double, 0.0, 1.0);
+  vtkGetMacro(BottomInterpolation, double);
+
   void SetFootprint(double xmin, double xmax, double ymin, double ymax);
-  void SetBottomZ(double value);
-  vtkGetMacro(BottomZ, double);
 
   bool GetFootprint(double footprint[4]) const;
   bool EvaluateSurfaceHeight(double x, double y, double& z);
@@ -90,28 +95,32 @@ protected:
   ~vtkStructuralSurfaceBoxRepresentation() override;
 
   vtkPolyData* GetActiveSurface() const;
+  vtkPolyData* GetLowerSurface() const;
   bool EnsureActiveSurfaceLocator();
   bool ComputeWorldPointOnDisplayRay(int X, int Y, double displayZ, double worldPt[3]);
   bool ComputeWorldPointOnHorizontalPlane(int X, int Y, double referenceZ, double worldPt[3]);
   bool ComputeWorldPointOnVerticalResizePlane(int X, int Y, const double anchor[3], double worldPt[3]);
+  bool EvaluateSurfaceInterval(double x, double y, double& upperZ, double& lowerZ);
+  bool EvaluateInterpolatedHeight(double x, double y, double interpolation, double& z);
   bool IsPointInsideSurfacePerimeter(double x, double y) const;
   bool IsFootprintInsideSurfacePerimeter(const double footprint[4]) const;
   void ApplyConstrainedFootprint(const double proposed[4]);
   void HighlightPart(int state);
   void UpdateHandleGeometry(const double bounds[6]);
-  double ComputeReferenceTopZ(double x, double y);
-  double ComputeMinimumTopZForFootprint(const double footprint[4]);
+  double ComputeInterpolatedReferenceZ(double x, double y, double interpolation);
+  double ComputeMinimumInterpolatedGapForFootprint(const double footprint[4]);
   void GetHandleAnchorPoint(int handleId, double point[3]);
-  void GetHandleDirection(int handleId, double direction[3]);
-  void ClampBottomToSurface();
+  void ClampInterpolationsToSurfaceInterval();
   void RebuildBoundaryLoop();
 
   vtkPolyDataCollection* StructuralSurfaces;
   int ActiveSurfaceIndex;
+  int LowerSurfaceIndex;
   int SamplingResolutionX;
   int SamplingResolutionY;
+  double TopInterpolation;
+  double BottomInterpolation;
   double Footprint[4];
-  double BottomZ;
   double LastPickPosition[3];
   double LastEventPosition[2];
   double Bounds[6];
@@ -119,6 +128,9 @@ protected:
   vtkTriangleFilter* SurfaceTriangulator;
   vtkCellLocator* SurfaceLocator;
   vtkPolyData* TriangulatedSurface;
+  vtkTriangleFilter* LowerSurfaceTriangulator;
+  vtkCellLocator* LowerSurfaceLocator;
+  vtkPolyData* LowerTriangulatedSurface;
   vtkTimeStamp LocatorBuildTime;
   vtkTimeStamp RepresentationBuildTime;
 
@@ -129,8 +141,7 @@ protected:
   vtkPolyDataMapper* OutlineMapper;
   vtkActor* OutlineActor;
 
-  vtkArrowSource* HandleSource;
-  vtkTransformPolyDataFilter** HandleTransformFilters;
+  vtkSphereSource** HandleSources;
   vtkPolyDataMapper** HandleMappers;
   vtkActor** Handles;
   vtkCellPicker* Picker;

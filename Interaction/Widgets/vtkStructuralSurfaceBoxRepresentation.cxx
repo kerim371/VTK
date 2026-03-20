@@ -4,14 +4,12 @@
 #include "vtkStructuralSurfaceBoxRepresentation.h"
 
 #include "vtkActor.h"
-#include "vtkArrowSource.h"
 #include "vtkCamera.h"
 #include "vtkCellArray.h"
 #include "vtkCellLocator.h"
 #include "vtkCellPicker.h"
 #include "vtkFeatureEdges.h"
 #include "vtkMath.h"
-#include "vtkMatrix4x4.h"
 #include "vtkNew.h"
 #include "vtkObjectFactory.h"
 #include "vtkPoints.h"
@@ -21,9 +19,8 @@
 #include "vtkPropCollection.h"
 #include "vtkProperty.h"
 #include "vtkRenderer.h"
+#include "vtkSphereSource.h"
 #include "vtkStripper.h"
-#include "vtkTransform.h"
-#include "vtkTransformPolyDataFilter.h"
 #include "vtkTriangleFilter.h"
 #include "vtkViewport.h"
 #include "vtkWindow.h"
@@ -38,9 +35,9 @@ vtkStandardNewMacro(vtkStructuralSurfaceBoxRepresentation);
 
 namespace
 {
-constexpr int NumberOfHandles = 5;
+constexpr int NumberOfHandles = 6;
 constexpr double MinFootprintSize = 1e-3;
-constexpr double MinHeight = 1e-3;
+constexpr double MinInterpolationGap = 1e-3;
 constexpr int BoundaryBinarySearchIterations = 24;
 
 int InteractionStateFromHandle(int handleId)
@@ -56,6 +53,8 @@ int InteractionStateFromHandle(int handleId)
     case 3:
       return vtkStructuralSurfaceBoxRepresentation::AdjustYMax;
     case 4:
+      return vtkStructuralSurfaceBoxRepresentation::AdjustTop;
+    case 5:
       return vtkStructuralSurfaceBoxRepresentation::AdjustBottom;
     default:
       return vtkStructuralSurfaceBoxRepresentation::Outside;
@@ -106,9 +105,11 @@ bool PointInPolygon2D(const std::vector<std::array<double, 2>>& polygon, double 
 vtkStructuralSurfaceBoxRepresentation::vtkStructuralSurfaceBoxRepresentation()
   : StructuralSurfaces(nullptr)
   , ActiveSurfaceIndex(0)
+  , LowerSurfaceIndex(1)
   , SamplingResolutionX(12)
   , SamplingResolutionY(12)
-  , BottomZ(-20.0)
+  , TopInterpolation(0.2)
+  , BottomInterpolation(0.8)
 {
   this->Footprint[0] = -10.0;
   this->Footprint[1] = 10.0;
@@ -123,6 +124,9 @@ vtkStructuralSurfaceBoxRepresentation::vtkStructuralSurfaceBoxRepresentation()
   this->SurfaceTriangulator = vtkTriangleFilter::New();
   this->SurfaceLocator = vtkCellLocator::New();
   this->TriangulatedSurface = vtkPolyData::New();
+  this->LowerSurfaceTriangulator = vtkTriangleFilter::New();
+  this->LowerSurfaceLocator = vtkCellLocator::New();
+  this->LowerTriangulatedSurface = vtkPolyData::New();
 
   this->SurfacePolyData = vtkPolyData::New();
   this->SurfaceMapper = vtkPolyDataMapper::New();
@@ -136,22 +140,16 @@ vtkStructuralSurfaceBoxRepresentation::vtkStructuralSurfaceBoxRepresentation()
   this->OutlineActor = vtkActor::New();
   this->OutlineActor->SetMapper(this->OutlineMapper);
 
-  this->HandleSource = vtkArrowSource::New();
-  this->HandleSource->SetShaftResolution(16);
-  this->HandleSource->SetTipResolution(16);
-  this->HandleSource->SetTipLength(0.30);
-  this->HandleSource->SetTipRadius(0.12);
-  this->HandleSource->SetShaftRadius(0.05);
-
-  this->HandleTransformFilters = new vtkTransformPolyDataFilter*[NumberOfHandles];
+  this->HandleSources = new vtkSphereSource*[NumberOfHandles];
   this->HandleMappers = new vtkPolyDataMapper*[NumberOfHandles];
   this->Handles = new vtkActor*[NumberOfHandles];
   for (int i = 0; i < NumberOfHandles; ++i)
   {
-    this->HandleTransformFilters[i] = vtkTransformPolyDataFilter::New();
-    this->HandleTransformFilters[i]->SetInputConnection(this->HandleSource->GetOutputPort());
+    this->HandleSources[i] = vtkSphereSource::New();
+    this->HandleSources[i]->SetThetaResolution(24);
+    this->HandleSources[i]->SetPhiResolution(16);
     this->HandleMappers[i] = vtkPolyDataMapper::New();
-    this->HandleMappers[i]->SetInputConnection(this->HandleTransformFilters[i]->GetOutputPort());
+    this->HandleMappers[i]->SetInputConnection(this->HandleSources[i]->GetOutputPort());
     this->Handles[i] = vtkActor::New();
     this->Handles[i]->SetMapper(this->HandleMappers[i]);
   }
@@ -169,7 +167,7 @@ vtkStructuralSurfaceBoxRepresentation::vtkStructuralSurfaceBoxRepresentation()
   this->SelectedOutlineProperty->SetColor(1.0, 0.85, 0.25);
   this->SelectedOutlineProperty->SetLineWidth(2.6);
   this->HandleProperty = vtkProperty::New();
-  this->HandleProperty->SetColor(0.35, 1.0, 0.35);
+  this->HandleProperty->SetColor(0.2, 0.8, 0.2);
   this->SelectedHandleProperty = vtkProperty::New();
   this->SelectedHandleProperty->SetColor(1.0, 0.45, 0.15);
 
@@ -198,6 +196,9 @@ vtkStructuralSurfaceBoxRepresentation::~vtkStructuralSurfaceBoxRepresentation()
   this->SurfaceTriangulator->Delete();
   this->SurfaceLocator->Delete();
   this->TriangulatedSurface->Delete();
+  this->LowerSurfaceTriangulator->Delete();
+  this->LowerSurfaceLocator->Delete();
+  this->LowerTriangulatedSurface->Delete();
 
   this->SurfacePolyData->Delete();
   this->SurfaceMapper->Delete();
@@ -206,14 +207,13 @@ vtkStructuralSurfaceBoxRepresentation::~vtkStructuralSurfaceBoxRepresentation()
   this->OutlineMapper->Delete();
   this->OutlineActor->Delete();
 
-  this->HandleSource->Delete();
   for (int i = 0; i < NumberOfHandles; ++i)
   {
-    this->HandleTransformFilters[i]->Delete();
+    this->HandleSources[i]->Delete();
     this->HandleMappers[i]->Delete();
     this->Handles[i]->Delete();
   }
-  delete[] this->HandleTransformFilters;
+  delete[] this->HandleSources;
   delete[] this->HandleMappers;
   delete[] this->Handles;
 
@@ -263,19 +263,7 @@ void vtkStructuralSurfaceBoxRepresentation::SetFootprint(
 
   double proposed[4] = { xmin, std::max(xmax, xmin + MinFootprintSize), ymin,
     std::max(ymax, ymin + MinFootprintSize) };
-
   this->ApplyConstrainedFootprint(proposed);
-  this->Modified();
-}
-
-void vtkStructuralSurfaceBoxRepresentation::SetBottomZ(double value)
-{
-  if (this->BottomZ == value)
-  {
-    return;
-  }
-  this->BottomZ = value;
-  this->ClampBottomToSurface();
   this->Modified();
 }
 
@@ -299,6 +287,26 @@ vtkPolyData* vtkStructuralSurfaceBoxRepresentation::GetActiveSurface() const
   this->StructuralSurfaces->InitTraversal();
   vtkPolyData* surface = nullptr;
   for (int i = 0; i <= this->ActiveSurfaceIndex; ++i)
+  {
+    surface = this->StructuralSurfaces->GetNextItem();
+    if (!surface)
+    {
+      break;
+    }
+  }
+  return surface;
+}
+
+vtkPolyData* vtkStructuralSurfaceBoxRepresentation::GetLowerSurface() const
+{
+  if (!this->StructuralSurfaces)
+  {
+    return nullptr;
+  }
+
+  this->StructuralSurfaces->InitTraversal();
+  vtkPolyData* surface = nullptr;
+  for (int i = 0; i <= this->LowerSurfaceIndex; ++i)
   {
     surface = this->StructuralSurfaces->GetNextItem();
     if (!surface)
@@ -356,7 +364,7 @@ void vtkStructuralSurfaceBoxRepresentation::RebuildBoundaryLoop()
       loopPolyData->GetPoint(pts[i], p);
       candidate.push_back({ p[0], p[1] });
     }
-    if (candidate.front() == candidate.back())
+    if (!candidate.empty() && candidate.front() == candidate.back())
     {
       candidate.pop_back();
     }
@@ -374,23 +382,32 @@ void vtkStructuralSurfaceBoxRepresentation::RebuildBoundaryLoop()
 
 bool vtkStructuralSurfaceBoxRepresentation::EnsureActiveSurfaceLocator()
 {
-  vtkPolyData* activeSurface = this->GetActiveSurface();
-  if (!activeSurface || !activeSurface->GetPoints() || activeSurface->GetNumberOfPoints() < 3)
+  vtkPolyData* upperSurface = this->GetActiveSurface();
+  vtkPolyData* lowerSurface = this->GetLowerSurface();
+  if (!upperSurface || !lowerSurface || !upperSurface->GetPoints() || !lowerSurface->GetPoints() ||
+    upperSurface->GetNumberOfPoints() < 3 || lowerSurface->GetNumberOfPoints() < 3)
   {
     return false;
   }
 
-  if (this->LocatorBuildTime > activeSurface->GetMTime() &&
+  if (this->LocatorBuildTime > upperSurface->GetMTime() && this->LocatorBuildTime > lowerSurface->GetMTime() &&
     this->LocatorBuildTime > this->GetMTime())
   {
-    return this->TriangulatedSurface->GetNumberOfCells() > 0;
+    return this->TriangulatedSurface->GetNumberOfCells() > 0 &&
+      this->LowerTriangulatedSurface->GetNumberOfCells() > 0;
   }
 
-  this->SurfaceTriangulator->SetInputData(activeSurface);
+  this->SurfaceTriangulator->SetInputData(upperSurface);
   this->SurfaceTriangulator->Update();
   this->TriangulatedSurface->DeepCopy(this->SurfaceTriangulator->GetOutput());
   this->SurfaceLocator->SetDataSet(this->TriangulatedSurface);
   this->SurfaceLocator->BuildLocator();
+
+  this->LowerSurfaceTriangulator->SetInputData(lowerSurface);
+  this->LowerSurfaceTriangulator->Update();
+  this->LowerTriangulatedSurface->DeepCopy(this->LowerSurfaceTriangulator->GetOutput());
+  this->LowerSurfaceLocator->SetDataSet(this->LowerTriangulatedSurface);
+  this->LowerSurfaceLocator->BuildLocator();
 
   double bounds[6];
   this->TriangulatedSurface->GetBounds(bounds);
@@ -399,34 +416,67 @@ bool vtkStructuralSurfaceBoxRepresentation::EnsureActiveSurfaceLocator()
   this->SurfaceXYBounds[2] = bounds[2];
   this->SurfaceXYBounds[3] = bounds[3];
   this->RebuildBoundaryLoop();
-
   this->LocatorBuildTime.Modified();
-  return this->TriangulatedSurface->GetNumberOfCells() > 0;
+  return true;
 }
 
 bool vtkStructuralSurfaceBoxRepresentation::EvaluateSurfaceHeight(double x, double y, double& z)
+{
+  return this->EvaluateInterpolatedHeight(x, y, this->TopInterpolation, z);
+}
+
+bool vtkStructuralSurfaceBoxRepresentation::EvaluateSurfaceInterval(
+  double x, double y, double& upperZ, double& lowerZ)
 {
   if (!this->EnsureActiveSurfaceLocator())
   {
     return false;
   }
 
-  double bounds[6];
-  this->TriangulatedSurface->GetBounds(bounds);
-  double p0[3] = { x, y, bounds[4] - 1.0 };
-  double p1[3] = { x, y, bounds[5] + 1.0 };
-  double t = 0.0;
-  double xyz[3];
-  double pcoords[3];
-  int subId = 0;
-  vtkIdType cellId = -1;
-  if (this->SurfaceLocator->IntersectWithLine(p0, p1, 1e-6, t, xyz, pcoords, subId, cellId))
-  {
-    z = xyz[2];
+  auto intersectVertical = [&](vtkPolyData* surface, vtkCellLocator* locator, double& zOut) {
+    double bounds[6];
+    surface->GetBounds(bounds);
+    double p0[3] = { x, y, bounds[4] - 1.0 };
+    double p1[3] = { x, y, bounds[5] + 1.0 };
+    double t = 0.0;
+    double xyz[3];
+    double pcoords[3];
+    int subId = 0;
+    vtkIdType cellId = -1;
+    if (!locator->IntersectWithLine(p0, p1, 1e-6, t, xyz, pcoords, subId, cellId))
+    {
+      return false;
+    }
+    zOut = xyz[2];
     return true;
+  };
+
+  if (!intersectVertical(this->TriangulatedSurface, this->SurfaceLocator, upperZ) ||
+    !intersectVertical(this->LowerTriangulatedSurface, this->LowerSurfaceLocator, lowerZ))
+  {
+    return false;
   }
 
-  return false;
+  if (upperZ > lowerZ)
+  {
+    std::swap(upperZ, lowerZ);
+  }
+  return true;
+}
+
+bool vtkStructuralSurfaceBoxRepresentation::EvaluateInterpolatedHeight(
+  double x, double y, double interpolation, double& z)
+{
+  double upperZ = 0.0;
+  double lowerZ = 0.0;
+  if (!this->EvaluateSurfaceInterval(x, y, upperZ, lowerZ))
+  {
+    return false;
+  }
+
+  const double t = std::clamp(interpolation, 0.0, 1.0);
+  z = upperZ + t * (lowerZ - upperZ);
+  return true;
 }
 
 bool vtkStructuralSurfaceBoxRepresentation::ComputeWorldPointOnDisplayRay(
@@ -436,7 +486,6 @@ bool vtkStructuralSurfaceBoxRepresentation::ComputeWorldPointOnDisplayRay(
   {
     return false;
   }
-
   this->Renderer->SetDisplayPoint(static_cast<double>(X), static_cast<double>(Y), displayZ);
   this->Renderer->DisplayToWorld();
   double homogeneous[4];
@@ -465,10 +514,10 @@ bool vtkStructuralSurfaceBoxRepresentation::ComputeWorldPointOnHorizontalPlane(
     return false;
   }
 
-  const double t = (referenceZ - p0[2]) / dirZ;
+  const double alpha = (referenceZ - p0[2]) / dirZ;
   for (int i = 0; i < 3; ++i)
   {
-    worldPt[i] = p0[i] + t * (p1[i] - p0[i]);
+    worldPt[i] = p0[i] + alpha * (p1[i] - p0[i]);
   }
   return true;
 }
@@ -476,11 +525,6 @@ bool vtkStructuralSurfaceBoxRepresentation::ComputeWorldPointOnHorizontalPlane(
 bool vtkStructuralSurfaceBoxRepresentation::ComputeWorldPointOnVerticalResizePlane(
   int X, int Y, const double anchor[3], double worldPt[3])
 {
-  if (!this->Renderer)
-  {
-    return false;
-  }
-
   double p0[3];
   double p1[3];
   if (!this->ComputeWorldPointOnDisplayRay(X, Y, 0.0, p0) ||
@@ -515,10 +559,10 @@ bool vtkStructuralSurfaceBoxRepresentation::ComputeWorldPointOnVerticalResizePla
   }
 
   double diff[3] = { anchor[0] - p0[0], anchor[1] - p0[1], anchor[2] - p0[2] };
-  const double t = vtkMath::Dot(planeNormal, diff) / denominator;
+  const double alpha = vtkMath::Dot(planeNormal, diff) / denominator;
   for (int i = 0; i < 3; ++i)
   {
-    worldPt[i] = p0[i] + t * rayDirection[i];
+    worldPt[i] = p0[i] + alpha * rayDirection[i];
   }
   return true;
 }
@@ -529,7 +573,6 @@ bool vtkStructuralSurfaceBoxRepresentation::IsPointInsideSurfacePerimeter(double
   {
     return PointInPolygon2D(this->BoundaryLoop, x, y);
   }
-
   return x >= this->SurfaceXYBounds[0] && x <= this->SurfaceXYBounds[1] && y >= this->SurfaceXYBounds[2] &&
     y <= this->SurfaceXYBounds[3];
 }
@@ -542,7 +585,6 @@ bool vtkStructuralSurfaceBoxRepresentation::IsFootprintInsideSurfacePerimeter(co
   const double ymax = footprint[3];
   const double xmid = 0.5 * (xmin + xmax);
   const double ymid = 0.5 * (ymin + ymax);
-
   const std::array<std::array<double, 2>, 9> probes = { std::array<double, 2>{ xmin, ymin },
     std::array<double, 2>{ xmax, ymin }, std::array<double, 2>{ xmax, ymax },
     std::array<double, 2>{ xmin, ymax }, std::array<double, 2>{ xmid, ymin },
@@ -572,21 +614,21 @@ void vtkStructuralSurfaceBoxRepresentation::ApplyConstrainedFootprint(const doub
     double hi = 1.0;
     for (int iter = 0; iter < BoundaryBinarySearchIterations; ++iter)
     {
-      const double mid = 0.5 * (lo + hi);
+      const double alpha = 0.5 * (lo + hi);
       double candidate[4];
       for (int i = 0; i < 4; ++i)
       {
-        candidate[i] = current[i] + mid * (clamped[i] - current[i]);
+        candidate[i] = current[i] + alpha * (clamped[i] - current[i]);
       }
       candidate[1] = std::max(candidate[1], candidate[0] + MinFootprintSize);
       candidate[3] = std::max(candidate[3], candidate[2] + MinFootprintSize);
       if (this->IsFootprintInsideSurfacePerimeter(candidate))
       {
-        lo = mid;
+        lo = alpha;
       }
       else
       {
-        hi = mid;
+        hi = alpha;
       }
     }
 
@@ -599,109 +641,98 @@ void vtkStructuralSurfaceBoxRepresentation::ApplyConstrainedFootprint(const doub
   }
 
   std::copy(clamped, clamped + 4, this->Footprint);
-  this->ClampBottomToSurface();
 }
 
-double vtkStructuralSurfaceBoxRepresentation::ComputeReferenceTopZ(double x, double y)
+double vtkStructuralSurfaceBoxRepresentation::ComputeInterpolatedReferenceZ(
+  double x, double y, double interpolation)
 {
-  double z = this->BottomZ + 10.0;
-  if (!this->EvaluateSurfaceHeight(x, y, z))
+  double z = 0.0;
+  if (!this->EvaluateInterpolatedHeight(x, y, interpolation, z))
   {
-    vtkPolyData* activeSurface = this->GetActiveSurface();
-    if (activeSurface)
-    {
-      double bounds[6];
-      activeSurface->GetBounds(bounds);
-      z = bounds[5];
-    }
+    return 0.0;
   }
   return z;
 }
 
-double vtkStructuralSurfaceBoxRepresentation::ComputeMinimumTopZForFootprint(const double footprint[4])
+double vtkStructuralSurfaceBoxRepresentation::ComputeMinimumInterpolatedGapForFootprint(const double footprint[4])
 {
   const int nx = std::max(1, this->SamplingResolutionX);
   const int ny = std::max(1, this->SamplingResolutionY);
   const double dx = (footprint[1] - footprint[0]) / static_cast<double>(nx);
   const double dy = (footprint[3] - footprint[2]) / static_cast<double>(ny);
 
-  double minTopZ = std::numeric_limits<double>::infinity();
+  double minGap = std::numeric_limits<double>::infinity();
   for (int j = 0; j <= ny; ++j)
   {
     const double y = footprint[2] + static_cast<double>(j) * dy;
     for (int i = 0; i <= nx; ++i)
     {
       const double x = footprint[0] + static_cast<double>(i) * dx;
-      double z = this->ComputeReferenceTopZ(x, y);
-      minTopZ = std::min(minTopZ, z);
+      double upperZ = 0.0;
+      double lowerZ = 0.0;
+      if (this->EvaluateSurfaceInterval(x, y, upperZ, lowerZ))
+      {
+        minGap = std::min(minGap, lowerZ - upperZ);
+      }
     }
   }
 
-  return std::isfinite(minTopZ) ? minTopZ : (this->BottomZ + MinHeight);
+  return std::isfinite(minGap) ? minGap : 0.0;
 }
 
-void vtkStructuralSurfaceBoxRepresentation::ClampBottomToSurface()
+void vtkStructuralSurfaceBoxRepresentation::ClampInterpolationsToSurfaceInterval()
 {
-  const double minTopZ = this->ComputeMinimumTopZForFootprint(this->Footprint);
-  this->BottomZ = std::min(this->BottomZ, minTopZ - MinHeight);
+  this->TopInterpolation = std::clamp(this->TopInterpolation, 0.0, 1.0);
+  this->BottomInterpolation = std::clamp(this->BottomInterpolation, 0.0, 1.0);
+  if (this->TopInterpolation > this->BottomInterpolation - MinInterpolationGap)
+  {
+    this->BottomInterpolation = std::min(1.0, this->TopInterpolation + MinInterpolationGap);
+  }
 }
 
 void vtkStructuralSurfaceBoxRepresentation::GetHandleAnchorPoint(int handleId, double point[3])
 {
   const double xmid = 0.5 * (this->Footprint[0] + this->Footprint[1]);
   const double ymid = 0.5 * (this->Footprint[2] + this->Footprint[3]);
+
+  double topZ = this->ComputeInterpolatedReferenceZ(xmid, ymid, this->TopInterpolation);
+  double bottomZ = this->ComputeInterpolatedReferenceZ(xmid, ymid, this->BottomInterpolation);
   switch (handleId)
   {
     case 0:
       point[0] = this->Footprint[0];
       point[1] = ymid;
-      point[2] = this->ComputeReferenceTopZ(point[0], point[1]);
+      point[2] = 0.5 * (this->ComputeInterpolatedReferenceZ(point[0], point[1], this->TopInterpolation) +
+        this->ComputeInterpolatedReferenceZ(point[0], point[1], this->BottomInterpolation));
       break;
     case 1:
       point[0] = this->Footprint[1];
       point[1] = ymid;
-      point[2] = this->ComputeReferenceTopZ(point[0], point[1]);
+      point[2] = 0.5 * (this->ComputeInterpolatedReferenceZ(point[0], point[1], this->TopInterpolation) +
+        this->ComputeInterpolatedReferenceZ(point[0], point[1], this->BottomInterpolation));
       break;
     case 2:
       point[0] = xmid;
       point[1] = this->Footprint[2];
-      point[2] = this->ComputeReferenceTopZ(point[0], point[1]);
+      point[2] = 0.5 * (this->ComputeInterpolatedReferenceZ(point[0], point[1], this->TopInterpolation) +
+        this->ComputeInterpolatedReferenceZ(point[0], point[1], this->BottomInterpolation));
       break;
     case 3:
       point[0] = xmid;
       point[1] = this->Footprint[3];
-      point[2] = this->ComputeReferenceTopZ(point[0], point[1]);
+      point[2] = 0.5 * (this->ComputeInterpolatedReferenceZ(point[0], point[1], this->TopInterpolation) +
+        this->ComputeInterpolatedReferenceZ(point[0], point[1], this->BottomInterpolation));
       break;
     case 4:
+      point[0] = xmid;
+      point[1] = ymid;
+      point[2] = topZ;
+      break;
+    case 5:
     default:
       point[0] = xmid;
       point[1] = ymid;
-      point[2] = this->BottomZ;
-      break;
-  }
-}
-
-void vtkStructuralSurfaceBoxRepresentation::GetHandleDirection(int handleId, double direction[3])
-{
-  direction[0] = 0.0;
-  direction[1] = 0.0;
-  direction[2] = 0.0;
-  switch (handleId)
-  {
-    case 0:
-      direction[0] = -1.0;
-      break;
-    case 1:
-      direction[0] = 1.0;
-      break;
-    case 2:
-      direction[1] = -1.0;
-      break;
-    case 3:
-      direction[1] = 1.0;
-      break;
-    case 4:
-      direction[2] = -1.0;
+      point[2] = bottomZ;
       break;
   }
 }
@@ -710,54 +741,16 @@ void vtkStructuralSurfaceBoxRepresentation::UpdateHandleGeometry(const double bo
 {
   const double dx = bounds[1] - bounds[0];
   const double dy = bounds[3] - bounds[2];
-  const double dz = std::max(bounds[5] - bounds[4], MinHeight);
-  const double length = 0.11 * std::sqrt(dx * dx + dy * dy + dz * dz);
-  const double width = 0.035 * std::sqrt(dx * dx + dy * dy + dz * dz);
+  const double dz = std::max(bounds[5] - bounds[4], 1.0);
+  const double radius = 0.025 * std::sqrt(dx * dx + dy * dy + dz * dz);
 
   for (int i = 0; i < NumberOfHandles; ++i)
   {
     double anchor[3];
-    double direction[3];
     this->GetHandleAnchorPoint(i, anchor);
-    this->GetHandleDirection(i, direction);
-
-    double xAxis[3] = { direction[0], direction[1], direction[2] };
-    vtkMath::Normalize(xAxis);
-
-    double reference[3] = { 0.0, 0.0, 1.0 };
-    if (std::abs(vtkMath::Dot(xAxis, reference)) > 0.95)
-    {
-      reference[0] = 0.0;
-      reference[1] = 1.0;
-      reference[2] = 0.0;
-    }
-
-    double yAxis[3];
-    vtkMath::Cross(reference, xAxis, yAxis);
-    vtkMath::Normalize(yAxis);
-
-    double zAxis[3];
-    vtkMath::Cross(xAxis, yAxis, zAxis);
-    vtkMath::Normalize(zAxis);
-
-    double origin[3] = { anchor[0] - 0.5 * length * xAxis[0], anchor[1] - 0.5 * length * xAxis[1],
-      anchor[2] - 0.5 * length * xAxis[2] };
-
-    vtkNew<vtkMatrix4x4> matrix;
-    matrix->Identity();
-    for (int row = 0; row < 3; ++row)
-    {
-      matrix->SetElement(row, 0, length * xAxis[row]);
-      matrix->SetElement(row, 1, width * yAxis[row]);
-      matrix->SetElement(row, 2, width * zAxis[row]);
-      matrix->SetElement(row, 3, origin[row]);
-    }
-
-    vtkNew<vtkTransform> transform;
-    transform->SetMatrix(matrix);
-
-    this->HandleTransformFilters[i]->SetTransform(transform);
-    this->HandleTransformFilters[i]->Update();
+    this->HandleSources[i]->SetCenter(anchor);
+    this->HandleSources[i]->SetRadius(radius);
+    this->HandleSources[i]->Update();
   }
 }
 
@@ -769,8 +762,11 @@ void vtkStructuralSurfaceBoxRepresentation::BuildRepresentation()
     return;
   }
 
-  this->EnsureActiveSurfaceLocator();
-  this->ClampBottomToSurface();
+  if (!this->EnsureActiveSurfaceLocator())
+  {
+    return;
+  }
+  this->ClampInterpolationsToSurfaceInterval();
 
   const int nx = this->SamplingResolutionX;
   const int ny = this->SamplingResolutionY;
@@ -782,9 +778,6 @@ void vtkStructuralSurfaceBoxRepresentation::BuildRepresentation()
   surfacePoints->SetNumberOfPoints(2 * planeSize);
   vtkNew<vtkCellArray> polys;
 
-  double minTopZ = std::numeric_limits<double>::infinity();
-  double maxTopZ = -std::numeric_limits<double>::infinity();
-
   for (int j = 0; j <= ny; ++j)
   {
     const double y = this->Footprint[2] + static_cast<double>(j) * dy;
@@ -792,23 +785,10 @@ void vtkStructuralSurfaceBoxRepresentation::BuildRepresentation()
     {
       const double x = this->Footprint[0] + static_cast<double>(i) * dx;
       const vtkIdType id = static_cast<vtkIdType>(j) * (nx + 1) + i;
-      double z = this->ComputeReferenceTopZ(x, y);
-      minTopZ = std::min(minTopZ, z);
-      maxTopZ = std::max(maxTopZ, z);
-      surfacePoints->SetPoint(id, x, y, z);
-      surfacePoints->SetPoint(id + planeSize, x, y, this->BottomZ);
-    }
-  }
-
-  if (this->BottomZ > minTopZ - MinHeight)
-  {
-    this->BottomZ = minTopZ - MinHeight;
-    for (vtkIdType id = planeSize; id < 2 * planeSize; ++id)
-    {
-      double p[3];
-      surfacePoints->GetPoint(id, p);
-      p[2] = this->BottomZ;
-      surfacePoints->SetPoint(id, p);
+      double topZ = this->ComputeInterpolatedReferenceZ(x, y, this->TopInterpolation);
+      double bottomZ = this->ComputeInterpolatedReferenceZ(x, y, this->BottomInterpolation);
+      surfacePoints->SetPoint(id, x, y, topZ);
+      surfacePoints->SetPoint(id + planeSize, x, y, bottomZ);
     }
   }
 
@@ -820,6 +800,7 @@ void vtkStructuralSurfaceBoxRepresentation::BuildRepresentation()
       const vtkIdType p10 = p00 + 1;
       const vtkIdType p01 = static_cast<vtkIdType>(j + 1) * (nx + 1) + i;
       const vtkIdType p11 = p01 + 1;
+
       vtkIdType topTri0[3] = { p00, p10, p11 };
       vtkIdType topTri1[3] = { p00, p11, p01 };
       vtkIdType bottomTri0[3] = { p00 + planeSize, p11 + planeSize, p10 + planeSize };
@@ -835,34 +816,34 @@ void vtkStructuralSurfaceBoxRepresentation::BuildRepresentation()
   {
     vtkIdType front0 = i;
     vtkIdType front1 = i + 1;
-    vtkIdType frontQuad0[3] = { front0, front1, front1 + planeSize };
-    vtkIdType frontQuad1[3] = { front0, front1 + planeSize, front0 + planeSize };
-    polys->InsertNextCell(3, frontQuad0);
-    polys->InsertNextCell(3, frontQuad1);
+    vtkIdType frontTri0[3] = { front0, front1, front1 + planeSize };
+    vtkIdType frontTri1[3] = { front0, front1 + planeSize, front0 + planeSize };
+    polys->InsertNextCell(3, frontTri0);
+    polys->InsertNextCell(3, frontTri1);
 
     vtkIdType back0 = static_cast<vtkIdType>(ny) * (nx + 1) + i;
     vtkIdType back1 = back0 + 1;
-    vtkIdType backQuad0[3] = { back0, back0 + planeSize, back1 + planeSize };
-    vtkIdType backQuad1[3] = { back0, back1 + planeSize, back1 };
-    polys->InsertNextCell(3, backQuad0);
-    polys->InsertNextCell(3, backQuad1);
+    vtkIdType backTri0[3] = { back0, back0 + planeSize, back1 + planeSize };
+    vtkIdType backTri1[3] = { back0, back1 + planeSize, back1 };
+    polys->InsertNextCell(3, backTri0);
+    polys->InsertNextCell(3, backTri1);
   }
 
   for (int j = 0; j < ny; ++j)
   {
     vtkIdType left0 = static_cast<vtkIdType>(j) * (nx + 1);
     vtkIdType left1 = static_cast<vtkIdType>(j + 1) * (nx + 1);
-    vtkIdType leftQuad0[3] = { left0, left0 + planeSize, left1 + planeSize };
-    vtkIdType leftQuad1[3] = { left0, left1 + planeSize, left1 };
-    polys->InsertNextCell(3, leftQuad0);
-    polys->InsertNextCell(3, leftQuad1);
+    vtkIdType leftTri0[3] = { left0, left0 + planeSize, left1 + planeSize };
+    vtkIdType leftTri1[3] = { left0, left1 + planeSize, left1 };
+    polys->InsertNextCell(3, leftTri0);
+    polys->InsertNextCell(3, leftTri1);
 
     vtkIdType right0 = static_cast<vtkIdType>(j) * (nx + 1) + nx;
     vtkIdType right1 = static_cast<vtkIdType>(j + 1) * (nx + 1) + nx;
-    vtkIdType rightQuad0[3] = { right0, right1, right1 + planeSize };
-    vtkIdType rightQuad1[3] = { right0, right1 + planeSize, right0 + planeSize };
-    polys->InsertNextCell(3, rightQuad0);
-    polys->InsertNextCell(3, rightQuad1);
+    vtkIdType rightTri0[3] = { right0, right1, right1 + planeSize };
+    vtkIdType rightTri1[3] = { right0, right1 + planeSize, right0 + planeSize };
+    polys->InsertNextCell(3, rightTri0);
+    polys->InsertNextCell(3, rightTri1);
   }
 
   this->SurfacePolyData->SetPoints(surfacePoints);
@@ -872,8 +853,8 @@ void vtkStructuralSurfaceBoxRepresentation::BuildRepresentation()
   this->SurfacePolyData->GetBounds(this->Bounds);
 
   vtkNew<vtkPoints> outlinePoints;
-  vtkNew<vtkCellArray> outlineLines;
   outlinePoints->DeepCopy(surfacePoints);
+  vtkNew<vtkCellArray> outlineLines;
 
   vtkNew<vtkIdList> topLoop;
   for (int i = 0; i <= nx; ++i)
@@ -895,9 +876,13 @@ void vtkStructuralSurfaceBoxRepresentation::BuildRepresentation()
   topLoop->InsertNextId(0);
   outlineLines->InsertNextCell(topLoop);
 
-  vtkIdType bottomLoop[5] = { planeSize, planeSize + nx, planeSize + static_cast<vtkIdType>(ny) * (nx + 1) + nx,
-    planeSize + static_cast<vtkIdType>(ny) * (nx + 1), planeSize };
-  outlineLines->InsertNextCell(5, bottomLoop);
+  vtkNew<vtkIdList> bottomLoop;
+  bottomLoop->InsertNextId(planeSize);
+  bottomLoop->InsertNextId(planeSize + nx);
+  bottomLoop->InsertNextId(planeSize + static_cast<vtkIdType>(ny) * (nx + 1) + nx);
+  bottomLoop->InsertNextId(planeSize + static_cast<vtkIdType>(ny) * (nx + 1));
+  bottomLoop->InsertNextId(planeSize);
+  outlineLines->InsertNextCell(bottomLoop);
 
   vtkIdType verticalEdge0[2] = { 0, planeSize };
   vtkIdType verticalEdge1[2] = { nx, planeSize + nx };
@@ -960,18 +945,22 @@ void vtkStructuralSurfaceBoxRepresentation::StartWidgetInteraction(double eventP
 
   const double xmid = 0.5 * (this->Footprint[0] + this->Footprint[1]);
   const double ymid = 0.5 * (this->Footprint[2] + this->Footprint[3]);
-  const double refZ = this->ComputeReferenceTopZ(xmid, ymid);
 
-  if (this->InteractionState == AdjustBottom)
+  if (this->InteractionState == AdjustTop || this->InteractionState == AdjustBottom)
   {
-    const double anchor[3] = { xmid, ymid, this->BottomZ };
+    const double anchor[3] = { xmid, ymid,
+      this->InteractionState == AdjustTop
+        ? this->ComputeInterpolatedReferenceZ(xmid, ymid, this->TopInterpolation)
+        : this->ComputeInterpolatedReferenceZ(xmid, ymid, this->BottomInterpolation) };
     this->ComputeWorldPointOnVerticalResizePlane(
       static_cast<int>(eventPos[0]), static_cast<int>(eventPos[1]), anchor, this->LastPickPosition);
   }
   else
   {
+    const double midZ = 0.5 * (this->ComputeInterpolatedReferenceZ(xmid, ymid, this->TopInterpolation) +
+      this->ComputeInterpolatedReferenceZ(xmid, ymid, this->BottomInterpolation));
     this->ComputeWorldPointOnHorizontalPlane(
-      static_cast<int>(eventPos[0]), static_cast<int>(eventPos[1]), refZ, this->LastPickPosition);
+      static_cast<int>(eventPos[0]), static_cast<int>(eventPos[1]), midZ, this->LastPickPosition);
   }
 }
 
@@ -979,26 +968,46 @@ void vtkStructuralSurfaceBoxRepresentation::WidgetInteraction(double eventPos[2]
 {
   const double xmid = 0.5 * (this->Footprint[0] + this->Footprint[1]);
   const double ymid = 0.5 * (this->Footprint[2] + this->Footprint[3]);
-  const double refZ = this->ComputeReferenceTopZ(xmid, ymid);
 
-  if (this->InteractionState == AdjustBottom)
+  if (this->InteractionState == AdjustTop || this->InteractionState == AdjustBottom)
   {
-    double anchor[3] = { xmid, ymid, this->BottomZ };
+    const double anchor[3] = { xmid, ymid,
+      this->InteractionState == AdjustTop
+        ? this->ComputeInterpolatedReferenceZ(xmid, ymid, this->TopInterpolation)
+        : this->ComputeInterpolatedReferenceZ(xmid, ymid, this->BottomInterpolation) };
     double worldPt[3];
     if (!this->ComputeWorldPointOnVerticalResizePlane(
           static_cast<int>(eventPos[0]), static_cast<int>(eventPos[1]), anchor, worldPt))
     {
       return;
     }
-    this->BottomZ = worldPt[2];
-    this->ClampBottomToSurface();
+
+    double upperZ = 0.0;
+    double lowerZ = 0.0;
+    if (!this->EvaluateSurfaceInterval(xmid, ymid, upperZ, lowerZ) || std::abs(lowerZ - upperZ) < 1e-12)
+    {
+      return;
+    }
+
+    const double interpolation = std::clamp((worldPt[2] - upperZ) / (lowerZ - upperZ), 0.0, 1.0);
+    if (this->InteractionState == AdjustTop)
+    {
+      this->TopInterpolation = std::min(interpolation, this->BottomInterpolation - MinInterpolationGap);
+    }
+    else
+    {
+      this->BottomInterpolation = std::max(interpolation, this->TopInterpolation + MinInterpolationGap);
+    }
+    this->ClampInterpolationsToSurfaceInterval();
     std::copy(worldPt, worldPt + 3, this->LastPickPosition);
   }
   else
   {
+    const double midZ = 0.5 * (this->ComputeInterpolatedReferenceZ(xmid, ymid, this->TopInterpolation) +
+      this->ComputeInterpolatedReferenceZ(xmid, ymid, this->BottomInterpolation));
     double worldPt[3];
     if (!this->ComputeWorldPointOnHorizontalPlane(
-          static_cast<int>(eventPos[0]), static_cast<int>(eventPos[1]), refZ, worldPt))
+          static_cast<int>(eventPos[0]), static_cast<int>(eventPos[1]), midZ, worldPt))
     {
       return;
     }
@@ -1027,8 +1036,6 @@ void vtkStructuralSurfaceBoxRepresentation::WidgetInteraction(double eventPos[2]
         proposed[2] += deltaY;
         proposed[3] += deltaY;
         break;
-      case Outside:
-      case AdjustBottom:
       default:
         break;
     }
@@ -1078,11 +1085,12 @@ void vtkStructuralSurfaceBoxRepresentation::HighlightPart(int state)
     case AdjustYMax:
       highlightedHandle = 3;
       break;
-    case AdjustBottom:
+    case AdjustTop:
       highlightedHandle = 4;
       break;
-    case Outside:
-    case Translating:
+    case AdjustBottom:
+      highlightedHandle = 5;
+      break;
     default:
       break;
   }
@@ -1146,10 +1154,10 @@ void vtkStructuralSurfaceBoxRepresentation::PrintSelf(ostream& os, vtkIndent ind
 {
   this->Superclass::PrintSelf(os, indent);
   os << indent << "ActiveSurfaceIndex: " << this->ActiveSurfaceIndex << "\n";
-  os << indent << "SamplingResolutionX: " << this->SamplingResolutionX << "\n";
-  os << indent << "SamplingResolutionY: " << this->SamplingResolutionY << "\n";
+  os << indent << "LowerSurfaceIndex: " << this->LowerSurfaceIndex << "\n";
+  os << indent << "TopInterpolation: " << this->TopInterpolation << "\n";
+  os << indent << "BottomInterpolation: " << this->BottomInterpolation << "\n";
   os << indent << "Footprint: [" << this->Footprint[0] << ", " << this->Footprint[1] << ", "
      << this->Footprint[2] << ", " << this->Footprint[3] << "]\n";
-  os << indent << "BottomZ: " << this->BottomZ << "\n";
 }
 VTK_ABI_NAMESPACE_END

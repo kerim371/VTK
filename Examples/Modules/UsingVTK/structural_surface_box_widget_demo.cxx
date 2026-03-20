@@ -138,11 +138,13 @@ int main(int, char*[])
   vtkNew<vtkStructuralSurfaceBoxRepresentation> rep;
   rep->SetRenderer(renderer);
   rep->SetStructuralSurfaces(surfaces);
-  rep->SetActiveSurfaceIndex(1);
+  rep->SetActiveSurfaceIndex(0);
+  rep->SetLowerSurfaceIndex(2);
   rep->SetSamplingResolutionX(24);
   rep->SetSamplingResolutionY(24);
+  rep->SetTopInterpolation(0.18);
+  rep->SetBottomInterpolation(0.82);
   rep->SetFootprint(-20.0, 20.0, -24.0, 24.0);
-  rep->SetBottomZ(12.0);
   rep->BuildRepresentation();
 
   vtkNew<vtkStructuralSurfaceBoxWidget> widget;
