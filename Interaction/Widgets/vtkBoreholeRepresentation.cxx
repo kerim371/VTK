@@ -32,6 +32,8 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   , TopPosition(0.1)
   , BottomPosition(0.9)
   , TotalLength(0.0)
+  , ActiveT(0.0)
+  , DragInitialized(false)
   , SurfaceDx(1.0)
   , SurfaceDy(1.0)
   , CurrentOperation(DragNone)
@@ -95,12 +97,12 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   this->Picker = vtkCellPicker::New();
   this->Picker->SetTolerance(0.005);
   this->Picker->PickFromListOn();
-  this->Picker->AddPickList(this->WallActor);
-  this->Picker->AddPickList(this->TopCapActor);
-  this->Picker->AddPickList(this->BottomCapActor);
 
   this->LastEventPosition[0] = 0.0;
   this->LastEventPosition[1] = 0.0;
+  this->LastPickPosition[0] = 0.0;
+  this->LastPickPosition[1] = 0.0;
+  this->LastPickPosition[2] = 0.0;
 }
 
 vtkBoreholeRepresentation::~vtkBoreholeRepresentation()
@@ -344,9 +346,25 @@ void vtkBoreholeRepresentation::UpdateCapActors()
 
 bool vtkBoreholeRepresentation::PickWorldPoint(int X, int Y, double worldPt[3])
 {
+  return this->PickWorldPointFromProps(X, Y, this->WallActor, nullptr, worldPt, nullptr);
+}
+
+bool vtkBoreholeRepresentation::PickWorldPointFromProps(
+  int X, int Y, vtkProp* first, vtkProp* second, double worldPt[3], vtkProp** pickedProp)
+{
   if (!this->Renderer)
   {
     return false;
+  }
+
+  this->Picker->InitializePickList();
+  if (first)
+  {
+    this->Picker->AddPickList(first);
+  }
+  if (second)
+  {
+    this->Picker->AddPickList(second);
   }
 
   if (!this->Picker->Pick(static_cast<double>(X), static_cast<double>(Y), 0.0, this->Renderer))
@@ -354,6 +372,10 @@ bool vtkBoreholeRepresentation::PickWorldPoint(int X, int Y, double worldPt[3])
     return false;
   }
 
+  if (pickedProp)
+  {
+    *pickedProp = this->Picker->GetViewProp();
+  }
   this->Picker->GetPickPosition(worldPt);
   return true;
 }
@@ -538,9 +560,10 @@ int vtkBoreholeRepresentation::ComputeInteractionState(int X, int Y, int vtkNotU
   this->BuildRepresentation();
 
   int state = Outside;
-  if (this->Picker->Pick(static_cast<double>(X), static_cast<double>(Y), 0.0, this->Renderer))
+  double worldPt[3];
+  vtkProp* prop = nullptr;
+  if (this->PickWorldPointFromProps(X, Y, this->TopCapActor, this->BottomCapActor, worldPt, &prop))
   {
-    vtkProp* prop = this->Picker->GetViewProp();
     if (prop == this->TopCapActor)
     {
       state = OverTopCap;
@@ -549,10 +572,11 @@ int vtkBoreholeRepresentation::ComputeInteractionState(int X, int Y, int vtkNotU
     {
       state = OverBottomCap;
     }
-    else if (prop == this->WallActor)
-    {
-      state = OverWall;
-    }
+  }
+  else if (this->PickWorldPointFromProps(X, Y, this->WallActor, nullptr, worldPt, &prop) &&
+    prop == this->WallActor)
+  {
+    state = OverWall;
   }
 
   this->InteractionState = state;
@@ -560,18 +584,54 @@ int vtkBoreholeRepresentation::ComputeInteractionState(int X, int Y, int vtkNotU
   return state;
 }
 
-void vtkBoreholeRepresentation::HighlightPart(int state)
-{
-  this->WallActor->SetProperty(state == OverWall ? this->SelectedWallProperty : this->DefaultWallProperty);
-  this->TopCapActor->SetProperty(state == OverTopCap ? this->SelectedCapProperty : this->DefaultCapProperty);
-  this->BottomCapActor->SetProperty(
-    state == OverBottomCap ? this->SelectedCapProperty : this->DefaultCapProperty);
-}
-
 void vtkBoreholeRepresentation::StartWidgetInteraction(double eventPos[2])
 {
   this->LastEventPosition[0] = eventPos[0];
   this->LastEventPosition[1] = eventPos[1];
+  this->DragInitialized = false;
+
+  if (this->CurrentOperation == DragTopCap)
+  {
+    this->ActiveT = this->TopPosition;
+  }
+  else if (this->CurrentOperation == DragBottomCap)
+  {
+    this->ActiveT = this->BottomPosition;
+  }
+
+  double worldPt[3];
+  const int x = static_cast<int>(eventPos[0]);
+  const int y = static_cast<int>(eventPos[1]);
+  bool picked = false;
+  if (this->CurrentOperation == DragTopCap)
+  {
+    picked = this->PickWorldPointFromProps(x, y, this->TopCapActor, nullptr, worldPt, nullptr);
+  }
+  else if (this->CurrentOperation == DragBottomCap)
+  {
+    picked = this->PickWorldPointFromProps(x, y, this->BottomCapActor, nullptr, worldPt, nullptr);
+  }
+  else if (this->CurrentOperation == DragWallRadius)
+  {
+    picked = this->PickWorldPointFromProps(x, y, this->WallActor, nullptr, worldPt, nullptr);
+    if (picked)
+    {
+      double t = 0.0;
+      double distance = 0.0;
+      if (this->ComputeClosestOnTrajectory(worldPt, t, distance))
+      {
+        this->ActiveT = t;
+      }
+    }
+  }
+
+  if (picked)
+  {
+    this->LastPickPosition[0] = worldPt[0];
+    this->LastPickPosition[1] = worldPt[1];
+    this->LastPickPosition[2] = worldPt[2];
+    this->DragInitialized = true;
+  }
 }
 
 void vtkBoreholeRepresentation::WidgetInteraction(double newEventPos[2])
@@ -585,31 +645,74 @@ void vtkBoreholeRepresentation::WidgetInteraction(double newEventPos[2])
   }
 
   double worldPt[3];
-  if (!this->PickWorldPoint(static_cast<int>(newEventPos[0]), static_cast<int>(newEventPos[1]), worldPt))
-  {
-    return;
-  }
-
-  double t = 0.0;
-  double distance = 0.0;
-  if (!this->ComputeClosestOnTrajectory(worldPt, t, distance))
-  {
-    return;
-  }
-
-  const double minGap = 1e-4;
+  const int x = static_cast<int>(newEventPos[0]);
+  const int y = static_cast<int>(newEventPos[1]);
+  bool picked = false;
   if (this->CurrentOperation == DragTopCap)
   {
-    this->TopPosition = std::clamp(t, 0.0, this->BottomPosition - minGap);
+    picked = this->PickWorldPointFromProps(x, y, this->TopCapActor, nullptr, worldPt, nullptr);
   }
   else if (this->CurrentOperation == DragBottomCap)
   {
-    this->BottomPosition = std::clamp(t, this->TopPosition + minGap, 1.0);
+    picked = this->PickWorldPointFromProps(x, y, this->BottomCapActor, nullptr, worldPt, nullptr);
   }
   else if (this->CurrentOperation == DragWallRadius)
   {
-    this->Radius = std::max(distance, 1e-6);
+    picked = this->PickWorldPointFromProps(x, y, this->WallActor, nullptr, worldPt, nullptr);
   }
+
+  if (!picked)
+  {
+    return;
+  }
+
+  if (!this->DragInitialized)
+  {
+    this->LastPickPosition[0] = worldPt[0];
+    this->LastPickPosition[1] = worldPt[1];
+    this->LastPickPosition[2] = worldPt[2];
+    this->DragInitialized = true;
+    return;
+  }
+
+  const double delta[3] = { worldPt[0] - this->LastPickPosition[0], worldPt[1] - this->LastPickPosition[1],
+    worldPt[2] - this->LastPickPosition[2] };
+  const double minGap = 1e-4;
+  if (this->CurrentOperation == DragTopCap)
+  {
+    double p[3];
+    double tangent[3];
+    if (this->ComputePointAndTangent(this->ActiveT, p, tangent))
+    {
+      const double ds = vtkMath::Dot(delta, tangent) / std::max(this->TotalLength, 1e-12);
+      this->ActiveT = std::clamp(this->ActiveT + ds, 0.0, this->BottomPosition - minGap);
+      this->TopPosition = this->ActiveT;
+    }
+  }
+  else if (this->CurrentOperation == DragBottomCap)
+  {
+    double p[3];
+    double tangent[3];
+    if (this->ComputePointAndTangent(this->ActiveT, p, tangent))
+    {
+      const double ds = vtkMath::Dot(delta, tangent) / std::max(this->TotalLength, 1e-12);
+      this->ActiveT = std::clamp(this->ActiveT + ds, this->TopPosition + minGap, 1.0);
+      this->BottomPosition = this->ActiveT;
+    }
+  }
+  else if (this->CurrentOperation == DragWallRadius)
+  {
+    double center[3];
+    double tangent[3];
+    if (this->ComputePointAndTangent(this->ActiveT, center, tangent))
+    {
+      this->Radius = std::max(std::sqrt(vtkMath::Distance2BetweenPoints(worldPt, center)), 1e-6);
+    }
+  }
+
+  this->LastPickPosition[0] = worldPt[0];
+  this->LastPickPosition[1] = worldPt[1];
+  this->LastPickPosition[2] = worldPt[2];
 
   this->BuildRepresentation();
   this->NeedToRenderOn();
@@ -618,6 +721,15 @@ void vtkBoreholeRepresentation::WidgetInteraction(double newEventPos[2])
 void vtkBoreholeRepresentation::EndWidgetInteraction(double vtkNotUsed(newEventPos)[2])
 {
   this->CurrentOperation = DragNone;
+  this->DragInitialized = false;
+}
+
+void vtkBoreholeRepresentation::HighlightPart(int state)
+{
+  this->WallActor->SetProperty(state == OverWall ? this->SelectedWallProperty : this->DefaultWallProperty);
+  this->TopCapActor->SetProperty(state == OverTopCap ? this->SelectedCapProperty : this->DefaultCapProperty);
+  this->BottomCapActor->SetProperty(
+    state == OverBottomCap ? this->SelectedCapProperty : this->DefaultCapProperty);
 }
 
 double* vtkBoreholeRepresentation::GetBounds()

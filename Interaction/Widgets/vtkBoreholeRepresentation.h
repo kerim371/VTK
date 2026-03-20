@@ -28,6 +28,7 @@ class vtkPlaneCollection;
 class vtkPolyData;
 class vtkPolyDataCollection;
 class vtkPolyDataMapper;
+class vtkProp;
 class vtkProperty;
 class vtkRegularPolygonSource;
 class vtkTubeFilter;
@@ -98,6 +99,8 @@ protected:
 
   void HighlightPart(int state);
   bool PickWorldPoint(int X, int Y, double worldPt[3]);
+  bool PickWorldPointFromProps(
+    int X, int Y, vtkProp* first, vtkProp* second, double worldPt[3], vtkProp** pickedProp = nullptr);
   bool ComputeClosestOnTrajectory(const double worldPt[3], double& t, double& distance) const;
   bool ComputePointAndTangent(double t, double point[3], double tangent[3]) const;
   bool ComputeInterpolatedSurfaceNormal(const double point[3], double normal[3]) const;
@@ -139,6 +142,9 @@ protected:
   std::vector<double> CumulativeLengths;
   double TotalLength;
   double LastEventPosition[2];
+  double LastPickPosition[3];
+  double ActiveT;
+  vtkTypeBool DragInitialized;
   double SurfaceDx;
   double SurfaceDy;
 
