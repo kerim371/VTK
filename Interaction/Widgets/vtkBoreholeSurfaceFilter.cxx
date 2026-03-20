@@ -214,10 +214,21 @@ int vtkBoreholeSurfaceFilter::RequestData(
   if (vtkMath::Normalize(nPrev) <= 0.0)
   {
     nPrev[0] = 1.0;
+    nPrev[1] = 0.0;
+    nPrev[2] = 0.0;
   }
-  double bPrev[3];
-  vtkMath::Cross(tangents.data(), nPrev, bPrev);
-  vtkMath::Normalize(bPrev);
+
+  auto rotateAroundAxis = [](const double v[3], const double axis[3], double angle, double out[3]) {
+    const double c = std::cos(angle);
+    const double s = std::sin(angle);
+    const double dot = vtkMath::Dot(axis, v);
+    double cross[3];
+    vtkMath::Cross(axis, v, cross);
+    for (int k = 0; k < 3; ++k)
+    {
+      out[k] = c * v[k] + s * cross[k] + (1.0 - c) * dot * axis[k];
+    }
+  };
 
   for (int i = 0; i <= axialSegments; ++i)
   {
@@ -225,7 +236,36 @@ int vtkBoreholeSurfaceFilter::RequestData(
     const double* t = &tangents[static_cast<size_t>(3 * i)];
 
     double nCur[3] = { nPrev[0], nPrev[1], nPrev[2] };
-    double proj = vtkMath::Dot(nCur, t);
+    if (i > 0)
+    {
+      const double* tPrev = &tangents[static_cast<size_t>(3 * (i - 1))];
+      double rotAxis[3];
+      vtkMath::Cross(tPrev, t, rotAxis);
+      const double sinTheta = vtkMath::Norm(rotAxis);
+      const double cosTheta = std::clamp(vtkMath::Dot(tPrev, t), -1.0, 1.0);
+
+      if (sinTheta > 1e-10)
+      {
+        for (int k = 0; k < 3; ++k)
+        {
+          rotAxis[k] /= sinTheta;
+        }
+        const double angle = std::atan2(sinTheta, cosTheta);
+        double transported[3];
+        rotateAroundAxis(nPrev, rotAxis, angle, transported);
+        nCur[0] = transported[0];
+        nCur[1] = transported[1];
+        nCur[2] = transported[2];
+      }
+      else if (cosTheta < 0.0)
+      {
+        nCur[0] = -nCur[0];
+        nCur[1] = -nCur[1];
+        nCur[2] = -nCur[2];
+      }
+    }
+
+    const double proj = vtkMath::Dot(nCur, t);
     for (int k = 0; k < 3; ++k)
     {
       nCur[k] -= proj * t[k];
