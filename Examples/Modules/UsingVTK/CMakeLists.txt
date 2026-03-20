@@ -27,3 +27,39 @@ target_link_libraries(vtk_using_exe PRIVATE vtk_using_lib)
 
 add_test(NAME vtk_using_exe
   COMMAND vtk_using_exe)
+
+find_package(VTK
+  COMPONENTS
+    CommonCore
+    CommonDataModel
+    FiltersCore
+    FiltersGeneral
+    InteractionStyle
+    InteractionWidgets
+    RenderingCore
+    RenderingOpenGL2)
+
+if (VTK_FOUND)
+  add_executable(vtk_borehole_widget_demo borehole_widget_demo.cxx)
+  target_link_libraries(vtk_borehole_widget_demo
+    PRIVATE
+      VTK::CommonCore
+      VTK::CommonDataModel
+      VTK::FiltersCore
+      VTK::FiltersGeneral
+      VTK::InteractionStyle
+      VTK::InteractionWidgets
+      VTK::RenderingCore
+      VTK::RenderingOpenGL2)
+  vtk_module_autoinit(
+    TARGETS vtk_borehole_widget_demo
+    MODULES
+      VTK::CommonCore
+      VTK::CommonDataModel
+      VTK::FiltersCore
+      VTK::FiltersGeneral
+      VTK::InteractionStyle
+      VTK::InteractionWidgets
+      VTK::RenderingCore
+      VTK::RenderingOpenGL2)
+endif ()

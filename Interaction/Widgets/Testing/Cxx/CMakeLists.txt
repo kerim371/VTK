@@ -82,6 +82,7 @@ vtk_add_test_cxx(vtkInteractionWidgetsCxxTests tests
   TestTextWidget.cxx
   TestTextRepresentationWithBorders.cxx
   TestTextWidgetBackgroundInteractive.cxx
+  TestBoreholeWidget.cxx,NO_VALID
   )
 vtk_add_test_cxx(vtkInteractionWidgetsCxxTests no_valid_tests
   NO_VALID
