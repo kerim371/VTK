@@ -9,6 +9,7 @@
 #include "vtkObjectFactory.h"
 #include "vtkPlane.h"
 #include "vtkPlaneCollection.h"
+#include "vtkPolyLine.h"
 #include "vtkPolyData.h"
 #include "vtkPolyDataCollection.h"
 #include "vtkPolyDataMapper.h"
@@ -21,6 +22,7 @@
 #include "vtkTubeFilter.h"
 #include "vtkViewport.h"
 #include "vtkWindow.h"
+#include "vtkCellArray.h"
 
 #include <algorithm>
 #include <cmath>
@@ -30,6 +32,7 @@ vtkStandardNewMacro(vtkBoreholeRepresentation);
 
 vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   : Input(nullptr)
+  , IntervalTrajectory(nullptr)
   , Radius(1.0)
   , TopPosition(0.1)
   , BottomPosition(0.9)
@@ -45,6 +48,7 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   this->Tube->CappingOn();
   this->Tube->SetNumberOfSides(32);
   this->Tube->SetRadius(this->Radius);
+  this->IntervalTrajectory = vtkPolyData::New();
 
   this->Planes = vtkPlaneCollection::New();
   this->TopPlane = vtkPlane::New();
@@ -58,7 +62,7 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   this->Clip->SetClippingPlanes(this->Planes);
 
   this->WallMapper = vtkPolyDataMapper::New();
-  this->WallMapper->SetInputConnection(this->Clip->GetOutputPort());
+  this->WallMapper->SetInputConnection(this->Tube->GetOutputPort());
 
   this->WallActor = vtkActor::New();
   this->WallActor->SetMapper(this->WallMapper);
@@ -145,6 +149,7 @@ vtkBoreholeRepresentation::~vtkBoreholeRepresentation()
   this->SetInputData(nullptr);
   this->SetStructuralSurfaces(nullptr);
   this->Tube->Delete();
+  this->IntervalTrajectory->Delete();
   this->Clip->Delete();
   this->Planes->Delete();
   this->TopPlane->Delete();
@@ -210,7 +215,6 @@ void vtkBoreholeRepresentation::SetInputData(vtkPolyData* polyData)
   if (this->Input)
   {
     this->Input->Register(this);
-    this->Tube->SetInputData(this->Input);
     this->AxisMapper->SetInputData(this->Input);
   }
   else
@@ -270,28 +274,50 @@ void vtkBoreholeRepresentation::BuildRepresentation()
     this->BottomPosition = std::min(1.0, this->TopPosition + minGap);
   }
 
+  // Build a sub-trajectory between [TopPosition, BottomPosition]. The tube is
+  // generated from this interval directly, so it is always bounded by glyphs.
+  vtkNew<vtkPoints> intervalPoints;
+  vtkPoints* fullPoints = this->Input->GetPoints();
+  const double topS = this->TopPosition * this->TotalLength;
+  const double bottomS = this->BottomPosition * this->TotalLength;
+
+  double topPoint[3];
+  double topTangent[3];
+  double bottomPoint[3];
+  double bottomTangent[3];
+  this->ComputePointAndTangent(this->TopPosition, topPoint, topTangent);
+  this->ComputePointAndTangent(this->BottomPosition, bottomPoint, bottomTangent);
+  intervalPoints->InsertNextPoint(topPoint);
+
+  for (vtkIdType i = 1; i < npts - 1; ++i)
+  {
+    const double s = this->CumulativeLengths[static_cast<size_t>(i)];
+    if (s > topS && s < bottomS)
+    {
+      double p[3];
+      fullPoints->GetPoint(i, p);
+      intervalPoints->InsertNextPoint(p);
+    }
+  }
+  intervalPoints->InsertNextPoint(bottomPoint);
+
+  vtkNew<vtkCellArray> intervalLines;
+  vtkNew<vtkPolyLine> intervalLine;
+  intervalLine->GetPointIds()->SetNumberOfIds(intervalPoints->GetNumberOfPoints());
+  for (vtkIdType i = 0; i < intervalPoints->GetNumberOfPoints(); ++i)
+  {
+    intervalLine->GetPointIds()->SetId(i, i);
+  }
+  intervalLines->InsertNextCell(intervalLine);
+  this->IntervalTrajectory->SetPoints(intervalPoints);
+  this->IntervalTrajectory->SetLines(intervalLines);
+  this->Tube->SetInputData(this->IntervalTrajectory);
+
   this->UpdateClippingPlanes();
   this->UpdateCapActors();
   this->UpdateGlyphActors();
 
   this->Tube->Update();
-  this->Clip->Update();
-
-  // If clipping produced an empty output, try flipping both clipping plane
-  // normals. This makes the representation resilient to plane-orientation
-  // convention differences.
-  if (this->Clip->GetOutput() && this->Clip->GetOutput()->GetNumberOfPoints() == 0)
-  {
-    double nTop[3];
-    double nBottom[3];
-    this->TopPlane->GetNormal(nTop);
-    this->BottomPlane->GetNormal(nBottom);
-    this->TopPlane->SetNormal(-nTop[0], -nTop[1], -nTop[2]);
-    this->BottomPlane->SetNormal(-nBottom[0], -nBottom[1], -nBottom[2]);
-    this->UpdateCapActors();
-    this->UpdateGlyphActors();
-    this->Clip->Update();
-  }
 }
 
 bool vtkBoreholeRepresentation::ComputePointAndTangent(double t, double point[3], double tangent[3]) const
@@ -339,11 +365,10 @@ bool vtkBoreholeRepresentation::ComputePointAndTangent(double t, double point[3]
 void vtkBoreholeRepresentation::UpdateClippingPlanes()
 {
   double topPoint[3];
-  double topTangent[3];
   double bottomPoint[3];
-  double bottomTangent[3];
-  if (!this->ComputePointAndTangent(this->TopPosition, topPoint, topTangent) ||
-    !this->ComputePointAndTangent(this->BottomPosition, bottomPoint, bottomTangent))
+  double tangent[3];
+  if (!this->ComputePointAndTangent(this->TopPosition, topPoint, tangent) ||
+    !this->ComputePointAndTangent(this->BottomPosition, bottomPoint, tangent))
   {
     return;
   }
@@ -405,14 +430,6 @@ void vtkBoreholeRepresentation::UpdateGlyphActors()
   {
     return;
   }
-
-  const double glyphOffset = this->GlyphRadius * 0.2;
-  topPoint[0] -= glyphOffset * topTangent[0];
-  topPoint[1] -= glyphOffset * topTangent[1];
-  topPoint[2] -= glyphOffset * topTangent[2];
-  bottomPoint[0] += glyphOffset * bottomTangent[0];
-  bottomPoint[1] += glyphOffset * bottomTangent[1];
-  bottomPoint[2] += glyphOffset * bottomTangent[2];
 
   this->TopGlyphSource->SetCenter(topPoint);
   this->TopGlyphSource->SetRadius(this->GlyphRadius);

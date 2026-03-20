@@ -114,6 +114,7 @@ protected:
   void UpdateGlyphActors();
 
   vtkPolyData* Input;
+  vtkPolyData* IntervalTrajectory;
 
   double Radius;
   double TopPosition;
