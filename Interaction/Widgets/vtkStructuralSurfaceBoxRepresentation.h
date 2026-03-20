@@ -4,10 +4,11 @@
  * @class   vtkStructuralSurfaceBoxRepresentation
  * @brief   box-like ROI representation constrained by a structural surface
  *
- * This representation defines an axis-aligned XY footprint whose top face is
- * sampled from a selected structural surface (a 2.5D polydata surface). The
- * bottom face stays planar, allowing the region height to be adjusted while the
- * top face continuously follows the geological horizon.
+ * This representation defines an axis-aligned XY footprint whose top and
+ * bottom faces are both sampled by interpolating between two structural
+ * surfaces (2.5D polydata horizons). The ROI remains constrained in XY while
+ * its vertical extent moves smoothly through the interval defined by the two
+ * limiting surfaces.
  */
 
 #ifndef vtkStructuralSurfaceBoxRepresentation_h
@@ -98,8 +99,10 @@ protected:
   vtkPolyData* GetLowerSurface() const;
   bool EnsureActiveSurfaceLocator();
   bool ComputeWorldPointOnDisplayRay(int X, int Y, double displayZ, double worldPt[3]);
+  bool ComputeDisplayPoint(const double worldPt[3], double displayPt[3]);
   bool ComputeWorldPointOnHorizontalPlane(int X, int Y, double referenceZ, double worldPt[3]);
   bool ComputeWorldPointOnVerticalResizePlane(int X, int Y, const double anchor[3], double worldPt[3]);
+  bool ComputeDisplayInterpolationParameter(int X, int Y, double& interpolation);
   bool EvaluateSurfaceInterval(double x, double y, double& upperZ, double& lowerZ);
   bool EvaluateInterpolatedHeight(double x, double y, double interpolation, double& z);
   bool IsPointInsideSurfacePerimeter(double x, double y) const;
@@ -120,6 +123,7 @@ protected:
   int SamplingResolutionY;
   double TopInterpolation;
   double BottomInterpolation;
+  double InteractionInterpolationOffset;
   double Footprint[4];
   double LastPickPosition[3];
   double LastEventPosition[2];

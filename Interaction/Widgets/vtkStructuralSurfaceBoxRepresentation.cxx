@@ -110,6 +110,7 @@ vtkStructuralSurfaceBoxRepresentation::vtkStructuralSurfaceBoxRepresentation()
   , SamplingResolutionY(12)
   , TopInterpolation(0.2)
   , BottomInterpolation(0.8)
+  , InteractionInterpolationOffset(0.0)
 {
   this->Footprint[0] = -10.0;
   this->Footprint[1] = 10.0;
@@ -497,6 +498,20 @@ bool vtkStructuralSurfaceBoxRepresentation::ComputeWorldPointOnDisplayRay(
   return true;
 }
 
+bool vtkStructuralSurfaceBoxRepresentation::ComputeDisplayPoint(
+  const double worldPt[3], double displayPt[3])
+{
+  if (!this->Renderer)
+  {
+    return false;
+  }
+
+  this->Renderer->SetWorldPoint(worldPt[0], worldPt[1], worldPt[2], 1.0);
+  this->Renderer->WorldToDisplay();
+  this->Renderer->GetDisplayPoint(displayPt);
+  return true;
+}
+
 bool vtkStructuralSurfaceBoxRepresentation::ComputeWorldPointOnHorizontalPlane(
   int X, int Y, double referenceZ, double worldPt[3])
 {
@@ -519,6 +534,40 @@ bool vtkStructuralSurfaceBoxRepresentation::ComputeWorldPointOnHorizontalPlane(
   {
     worldPt[i] = p0[i] + alpha * (p1[i] - p0[i]);
   }
+  return true;
+}
+
+bool vtkStructuralSurfaceBoxRepresentation::ComputeDisplayInterpolationParameter(
+  int X, int Y, double& interpolation)
+{
+  const double xmid = 0.5 * (this->Footprint[0] + this->Footprint[1]);
+  const double ymid = 0.5 * (this->Footprint[2] + this->Footprint[3]);
+  const double topAnchor[3] = { xmid, ymid,
+    this->ComputeInterpolatedReferenceZ(xmid, ymid, this->TopInterpolation) };
+  const double bottomAnchor[3] = { xmid, ymid,
+    this->ComputeInterpolatedReferenceZ(xmid, ymid, this->BottomInterpolation) };
+
+  double topDisplay[3];
+  double bottomDisplay[3];
+  if (!this->ComputeDisplayPoint(topAnchor, topDisplay) ||
+    !this->ComputeDisplayPoint(bottomAnchor, bottomDisplay))
+  {
+    return false;
+  }
+
+  const double segment[2] = { bottomDisplay[0] - topDisplay[0], bottomDisplay[1] - topDisplay[1] };
+  const double segmentNorm2 = segment[0] * segment[0] + segment[1] * segment[1];
+  if (segmentNorm2 < 1e-12)
+  {
+    return false;
+  }
+
+  const double cursorDelta[2] = { static_cast<double>(X) - topDisplay[0],
+    static_cast<double>(Y) - topDisplay[1] };
+  const double alpha =
+    (cursorDelta[0] * segment[0] + cursorDelta[1] * segment[1]) / segmentNorm2;
+  interpolation =
+    this->TopInterpolation + alpha * (this->BottomInterpolation - this->TopInterpolation);
   return true;
 }
 
@@ -884,16 +933,35 @@ void vtkStructuralSurfaceBoxRepresentation::BuildRepresentation()
   bottomLoop->InsertNextId(planeSize);
   outlineLines->InsertNextCell(bottomLoop);
 
-  vtkIdType verticalEdge0[2] = { 0, planeSize };
-  vtkIdType verticalEdge1[2] = { nx, planeSize + nx };
-  vtkIdType verticalEdge2[2] = { static_cast<vtkIdType>(ny) * (nx + 1) + nx,
-    planeSize + static_cast<vtkIdType>(ny) * (nx + 1) + nx };
-  vtkIdType verticalEdge3[2] = { static_cast<vtkIdType>(ny) * (nx + 1),
-    planeSize + static_cast<vtkIdType>(ny) * (nx + 1) };
-  outlineLines->InsertNextCell(2, verticalEdge0);
-  outlineLines->InsertNextCell(2, verticalEdge1);
-  outlineLines->InsertNextCell(2, verticalEdge2);
-  outlineLines->InsertNextCell(2, verticalEdge3);
+  const int verticalEdgeResolution = std::max(2, std::max(nx, ny) / 2);
+  const std::array<std::array<double, 2>, 4> cornerXY = { std::array<double, 2>{ this->Footprint[0], this->Footprint[2] },
+    std::array<double, 2>{ this->Footprint[1], this->Footprint[2] },
+    std::array<double, 2>{ this->Footprint[1], this->Footprint[3] },
+    std::array<double, 2>{ this->Footprint[0], this->Footprint[3] } };
+  const std::array<std::array<vtkIdType, 2>, 4> cornerIds = { std::array<vtkIdType, 2>{ 0, planeSize },
+    std::array<vtkIdType, 2>{ nx, planeSize + nx },
+    std::array<vtkIdType, 2>{ static_cast<vtkIdType>(ny) * (nx + 1) + nx,
+      planeSize + static_cast<vtkIdType>(ny) * (nx + 1) + nx },
+    std::array<vtkIdType, 2>{ static_cast<vtkIdType>(ny) * (nx + 1),
+      planeSize + static_cast<vtkIdType>(ny) * (nx + 1) } };
+  for (std::size_t edgeId = 0; edgeId < cornerXY.size(); ++edgeId)
+  {
+    vtkNew<vtkIdList> verticalEdge;
+    verticalEdge->InsertNextId(cornerIds[edgeId][0]);
+    for (int step = 1; step < verticalEdgeResolution; ++step)
+    {
+      const double alpha = static_cast<double>(step) / static_cast<double>(verticalEdgeResolution);
+      const double interpolation =
+        this->TopInterpolation + alpha * (this->BottomInterpolation - this->TopInterpolation);
+      const double x = cornerXY[edgeId][0];
+      const double y = cornerXY[edgeId][1];
+      const vtkIdType pointId = outlinePoints->InsertNextPoint(
+        x, y, this->ComputeInterpolatedReferenceZ(x, y, interpolation));
+      verticalEdge->InsertNextId(pointId);
+    }
+    verticalEdge->InsertNextId(cornerIds[edgeId][1]);
+    outlineLines->InsertNextCell(verticalEdge);
+  }
 
   this->OutlinePolyData->SetPoints(outlinePoints);
   this->OutlinePolyData->SetLines(outlineLines);
@@ -948,12 +1016,18 @@ void vtkStructuralSurfaceBoxRepresentation::StartWidgetInteraction(double eventP
 
   if (this->InteractionState == AdjustTop || this->InteractionState == AdjustBottom)
   {
-    const double anchor[3] = { xmid, ymid,
-      this->InteractionState == AdjustTop
-        ? this->ComputeInterpolatedReferenceZ(xmid, ymid, this->TopInterpolation)
-        : this->ComputeInterpolatedReferenceZ(xmid, ymid, this->BottomInterpolation) };
-    this->ComputeWorldPointOnVerticalResizePlane(
-      static_cast<int>(eventPos[0]), static_cast<int>(eventPos[1]), anchor, this->LastPickPosition);
+    double displayInterpolation = 0.0;
+    const double currentInterpolation =
+      (this->InteractionState == AdjustTop ? this->TopInterpolation : this->BottomInterpolation);
+    if (this->ComputeDisplayInterpolationParameter(
+          static_cast<int>(eventPos[0]), static_cast<int>(eventPos[1]), displayInterpolation))
+    {
+      this->InteractionInterpolationOffset = currentInterpolation - displayInterpolation;
+    }
+    else
+    {
+      this->InteractionInterpolationOffset = 0.0;
+    }
   }
   else
   {
@@ -971,25 +1045,15 @@ void vtkStructuralSurfaceBoxRepresentation::WidgetInteraction(double eventPos[2]
 
   if (this->InteractionState == AdjustTop || this->InteractionState == AdjustBottom)
   {
-    const double anchor[3] = { xmid, ymid,
-      this->InteractionState == AdjustTop
-        ? this->ComputeInterpolatedReferenceZ(xmid, ymid, this->TopInterpolation)
-        : this->ComputeInterpolatedReferenceZ(xmid, ymid, this->BottomInterpolation) };
-    double worldPt[3];
-    if (!this->ComputeWorldPointOnVerticalResizePlane(
-          static_cast<int>(eventPos[0]), static_cast<int>(eventPos[1]), anchor, worldPt))
+    double displayInterpolation = 0.0;
+    if (!this->ComputeDisplayInterpolationParameter(
+          static_cast<int>(eventPos[0]), static_cast<int>(eventPos[1]), displayInterpolation))
     {
       return;
     }
 
-    double upperZ = 0.0;
-    double lowerZ = 0.0;
-    if (!this->EvaluateSurfaceInterval(xmid, ymid, upperZ, lowerZ) || std::abs(lowerZ - upperZ) < 1e-12)
-    {
-      return;
-    }
-
-    const double interpolation = std::clamp((worldPt[2] - upperZ) / (lowerZ - upperZ), 0.0, 1.0);
+    const double interpolation =
+      std::clamp(displayInterpolation + this->InteractionInterpolationOffset, 0.0, 1.0);
     if (this->InteractionState == AdjustTop)
     {
       this->TopInterpolation = std::min(interpolation, this->BottomInterpolation - MinInterpolationGap);
@@ -999,7 +1063,6 @@ void vtkStructuralSurfaceBoxRepresentation::WidgetInteraction(double eventPos[2]
       this->BottomInterpolation = std::max(interpolation, this->TopInterpolation + MinInterpolationGap);
     }
     this->ClampInterpolationsToSurfaceInterval();
-    std::copy(worldPt, worldPt + 3, this->LastPickPosition);
   }
   else
   {
