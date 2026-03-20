@@ -5,9 +5,9 @@
  * @brief   interactive representation of a tubular borehole interval
  *
  * This representation visualizes a borehole built from a polyline trajectory.
- * A tube is generated around the trajectory and clipped by two planes to create
- * movable top/bottom caps. The wall and both caps are pickable so a widget can
- * provide direct-manipulation interaction.
+ * A custom surface filter is used to build a closed borehole shell around the
+ * trajectory. The top and bottom ends are constrained by structural surfaces,
+ * while glyphs remain available for direct-manipulation interaction.
  */
 
 #ifndef vtkBoreholeRepresentation_h
@@ -22,19 +22,14 @@
 VTK_ABI_NAMESPACE_BEGIN
 class vtkActor;
 class vtkCellPicker;
-class vtkClipClosedSurface;
 class vtkPlane;
-class vtkPlaneCollection;
 class vtkPolyData;
 class vtkPolyDataCollection;
 class vtkPolyDataMapper;
 class vtkProp;
 class vtkProperty;
 class vtkSphereSource;
-class vtkRegularPolygonSource;
-class vtkCutter;
-class vtkContourTriangulator;
-class vtkTubeFilter;
+class vtkBoreholeSurfaceFilter;
 
 class VTKINTERACTIONWIDGETS_EXPORT VTK_MARSHALAUTO vtkBoreholeRepresentation
   : public vtkWidgetRepresentation
@@ -78,6 +73,9 @@ public:
   vtkGetMacro(SurfaceDx, double);
   vtkSetClampMacro(SurfaceDy, double, 1e-6, VTK_DOUBLE_MAX);
   vtkGetMacro(SurfaceDy, double);
+
+  vtkSetClampMacro(SurfaceDz, double, 1e-6, VTK_DOUBLE_MAX);
+  vtkGetMacro(SurfaceDz, double);
 
   vtkSetClampMacro(GlyphRadius, double, 1e-6, VTK_DOUBLE_MAX);
   vtkGetMacro(GlyphRadius, double);
@@ -123,27 +121,13 @@ protected:
   double BottomPosition;
   double GlyphRadius;
 
-  vtkTubeFilter* Tube;
-  vtkClipClosedSurface* Clip;
-  vtkPlaneCollection* Planes;
+  vtkBoreholeSurfaceFilter* Tube;
   vtkPlane* TopPlane;
   vtkPlane* BottomPlane;
   vtkPolyDataCollection* StructuralSurfaces;
 
   vtkPolyDataMapper* WallMapper;
   vtkActor* WallActor;
-
-  vtkRegularPolygonSource* TopCapSource;
-  vtkCutter* TopCapCutter;
-  vtkContourTriangulator* TopCapTriangulator;
-  vtkPolyDataMapper* TopCapMapper;
-  vtkActor* TopCapActor;
-
-  vtkRegularPolygonSource* BottomCapSource;
-  vtkCutter* BottomCapCutter;
-  vtkContourTriangulator* BottomCapTriangulator;
-  vtkPolyDataMapper* BottomCapMapper;
-  vtkActor* BottomCapActor;
 
   vtkPolyDataMapper* AxisMapper;
   vtkActor* AxisActor;
@@ -172,6 +156,7 @@ protected:
   vtkTypeBool DragInitialized;
   double SurfaceDx;
   double SurfaceDy;
+  double SurfaceDz;
 
   int CurrentOperation;
 

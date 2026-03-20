@@ -1,16 +1,13 @@
 // SPDX-FileCopyrightText: Copyright (c) Ken Martin, Will Schroeder, Bill Lorensen
 // SPDX-License-Identifier: BSD-3-Clause
 #include "vtkBoreholeRepresentation.h"
+#include "vtkBoreholeSurfaceFilter.h"
 
 #include "vtkActor.h"
 #include "vtkCellPicker.h"
-#include "vtkClipClosedSurface.h"
-#include "vtkContourTriangulator.h"
-#include "vtkCutter.h"
 #include "vtkMath.h"
 #include "vtkObjectFactory.h"
 #include "vtkPlane.h"
-#include "vtkPlaneCollection.h"
 #include "vtkPolyLine.h"
 #include "vtkPolyData.h"
 #include "vtkPolyDataCollection.h"
@@ -18,10 +15,8 @@
 #include "vtkPoints.h"
 #include "vtkProperty.h"
 #include "vtkPropCollection.h"
-#include "vtkRegularPolygonSource.h"
 #include "vtkRenderer.h"
 #include "vtkSphereSource.h"
-#include "vtkTubeFilter.h"
 #include "vtkViewport.h"
 #include "vtkWindow.h"
 #include "vtkCellArray.h"
@@ -44,58 +39,25 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   , DragInitialized(false)
   , SurfaceDx(1.0)
   , SurfaceDy(1.0)
+  , SurfaceDz(1.0)
   , CurrentOperation(DragNone)
 {
-  this->Tube = vtkTubeFilter::New();
-  this->Tube->CappingOff();
-  this->Tube->SetNumberOfSides(96);
+  this->Tube = vtkBoreholeSurfaceFilter::New();
   this->Tube->SetRadius(this->Radius);
+  this->Tube->SetDx(this->SurfaceDx);
+  this->Tube->SetDy(this->SurfaceDy);
+  this->Tube->SetDz(this->SurfaceDz);
   this->IntervalTrajectory = vtkPolyData::New();
 
-  this->Planes = vtkPlaneCollection::New();
   this->TopPlane = vtkPlane::New();
   this->BottomPlane = vtkPlane::New();
   this->StructuralSurfaces = nullptr;
-  this->Planes->AddItem(this->TopPlane);
-  this->Planes->AddItem(this->BottomPlane);
-
-  this->Clip = vtkClipClosedSurface::New();
-  this->Clip->SetInputConnection(this->Tube->GetOutputPort());
-  this->Clip->SetClippingPlanes(this->Planes);
 
   this->WallMapper = vtkPolyDataMapper::New();
   this->WallMapper->SetInputConnection(this->Tube->GetOutputPort());
 
   this->WallActor = vtkActor::New();
   this->WallActor->SetMapper(this->WallMapper);
-
-  this->TopCapSource = vtkRegularPolygonSource::New();
-  this->TopCapSource->SetNumberOfSides(48);
-  this->TopCapSource->GeneratePolygonOn();
-  this->TopCapSource->SetRadius(this->Radius);
-  this->TopCapCutter = vtkCutter::New();
-  this->TopCapCutter->SetInputConnection(this->Tube->GetOutputPort());
-  this->TopCapCutter->SetCutFunction(this->TopPlane);
-  this->TopCapTriangulator = vtkContourTriangulator::New();
-  this->TopCapTriangulator->SetInputConnection(this->TopCapCutter->GetOutputPort());
-  this->TopCapMapper = vtkPolyDataMapper::New();
-  this->TopCapMapper->SetInputConnection(this->TopCapSource->GetOutputPort());
-  this->TopCapActor = vtkActor::New();
-  this->TopCapActor->SetMapper(this->TopCapMapper);
-
-  this->BottomCapSource = vtkRegularPolygonSource::New();
-  this->BottomCapSource->SetNumberOfSides(48);
-  this->BottomCapSource->GeneratePolygonOn();
-  this->BottomCapSource->SetRadius(this->Radius);
-  this->BottomCapCutter = vtkCutter::New();
-  this->BottomCapCutter->SetInputConnection(this->Tube->GetOutputPort());
-  this->BottomCapCutter->SetCutFunction(this->BottomPlane);
-  this->BottomCapTriangulator = vtkContourTriangulator::New();
-  this->BottomCapTriangulator->SetInputConnection(this->BottomCapCutter->GetOutputPort());
-  this->BottomCapMapper = vtkPolyDataMapper::New();
-  this->BottomCapMapper->SetInputConnection(this->BottomCapSource->GetOutputPort());
-  this->BottomCapActor = vtkActor::New();
-  this->BottomCapActor->SetMapper(this->BottomCapMapper);
 
   this->AxisMapper = vtkPolyDataMapper::New();
   this->AxisActor = vtkActor::New();
@@ -139,8 +101,6 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   this->SelectedGlyphProperty->SetColor(1.0, 1.0, 0.1);
 
   this->WallActor->SetProperty(this->DefaultWallProperty);
-  this->TopCapActor->SetProperty(this->DefaultCapProperty);
-  this->BottomCapActor->SetProperty(this->DefaultCapProperty);
   this->AxisActor->SetProperty(this->AxisProperty);
   this->TopGlyphActor->SetProperty(this->DefaultGlyphProperty);
   this->BottomGlyphActor->SetProperty(this->DefaultGlyphProperty);
@@ -162,22 +122,10 @@ vtkBoreholeRepresentation::~vtkBoreholeRepresentation()
   this->SetStructuralSurfaces(nullptr);
   this->Tube->Delete();
   this->IntervalTrajectory->Delete();
-  this->Clip->Delete();
-  this->Planes->Delete();
   this->TopPlane->Delete();
   this->BottomPlane->Delete();
   this->WallMapper->Delete();
   this->WallActor->Delete();
-  this->TopCapSource->Delete();
-  this->TopCapCutter->Delete();
-  this->TopCapTriangulator->Delete();
-  this->TopCapMapper->Delete();
-  this->TopCapActor->Delete();
-  this->BottomCapSource->Delete();
-  this->BottomCapCutter->Delete();
-  this->BottomCapTriangulator->Delete();
-  this->BottomCapMapper->Delete();
-  this->BottomCapActor->Delete();
   this->AxisMapper->Delete();
   this->AxisActor->Delete();
   this->TopGlyphSource->Delete();
@@ -236,6 +184,8 @@ void vtkBoreholeRepresentation::SetInputData(vtkPolyData* polyData)
   else
   {
     this->Tube->SetInputData(nullptr);
+    this->Tube->SetTopSurface(nullptr);
+    this->Tube->SetBottomSurface(nullptr);
     this->AxisMapper->SetInputData(nullptr);
   }
 
@@ -260,6 +210,9 @@ void vtkBoreholeRepresentation::BuildRepresentation()
   }
 
   this->Tube->SetRadius(this->Radius);
+  this->Tube->SetDx(this->SurfaceDx);
+  this->Tube->SetDy(this->SurfaceDy);
+  this->Tube->SetDz(this->SurfaceDz);
 
   vtkPoints* points = this->Input->GetPoints();
   const vtkIdType npts = points->GetNumberOfPoints();
@@ -333,6 +286,52 @@ void vtkBoreholeRepresentation::BuildRepresentation()
   this->UpdateCapActors();
   this->UpdateGlyphActors();
 
+  vtkPolyData* topSurface = nullptr;
+  vtkPolyData* bottomSurface = nullptr;
+  double bestTopZ = -VTK_DOUBLE_MAX;
+  double bestBottomZ = VTK_DOUBLE_MAX;
+  if (this->StructuralSurfaces && this->StructuralSurfaces->GetNumberOfItems() > 0)
+  {
+    this->StructuralSurfaces->InitTraversal();
+    while (vtkPolyData* surface = vtkPolyData::SafeDownCast(this->StructuralSurfaces->GetNextItemAsObject()))
+    {
+      double zTop = 0.0;
+      if (this->EvaluateSurfaceHeightAtXY(surface, topPoint[0], topPoint[1], zTop))
+      {
+        if (!topSurface || zTop > bestTopZ)
+        {
+          topSurface = surface;
+          bestTopZ = zTop;
+        }
+      }
+
+      double zBottom = 0.0;
+      if (this->EvaluateSurfaceHeightAtXY(surface, bottomPoint[0], bottomPoint[1], zBottom))
+      {
+        if (!bottomSurface || zBottom < bestBottomZ)
+        {
+          bottomSurface = surface;
+          bestBottomZ = zBottom;
+        }
+      }
+    }
+
+    if (!topSurface || !bottomSurface)
+    {
+      this->StructuralSurfaces->InitTraversal();
+      if (!topSurface)
+      {
+        topSurface = vtkPolyData::SafeDownCast(this->StructuralSurfaces->GetNextItemAsObject());
+      }
+      if (!bottomSurface)
+      {
+        bottomSurface = vtkPolyData::SafeDownCast(this->StructuralSurfaces->GetNextItemAsObject());
+      }
+    }
+  }
+  this->Tube->SetTopSurface(topSurface);
+  this->Tube->SetBottomSurface(bottomSurface);
+
   this->Tube->Update();
 }
 
@@ -405,25 +404,6 @@ void vtkBoreholeRepresentation::UpdateClippingPlanes()
 
 void vtkBoreholeRepresentation::UpdateCapActors()
 {
-  double topPoint[3];
-  double bottomPoint[3];
-  double topNormal[3];
-  double bottomNormal[3];
-  this->TopPlane->GetOrigin(topPoint);
-  this->BottomPlane->GetOrigin(bottomPoint);
-  this->TopPlane->GetNormal(topNormal);
-  this->BottomPlane->GetNormal(bottomNormal);
-  if (vtkMath::Norm(topNormal) <= 0.0 || vtkMath::Norm(bottomNormal) <= 0.0)
-  {
-    return;
-  }
-
-  this->TopCapSource->SetCenter(topPoint);
-  this->TopCapSource->SetNormal(-topNormal[0], -topNormal[1], -topNormal[2]);
-  this->TopCapSource->SetRadius(this->Radius);
-  this->BottomCapSource->SetCenter(bottomPoint);
-  this->BottomCapSource->SetNormal(bottomNormal);
-  this->BottomCapSource->SetRadius(this->Radius);
 }
 
 void vtkBoreholeRepresentation::UpdateGlyphActors()
@@ -852,8 +832,6 @@ void vtkBoreholeRepresentation::GetActors(vtkPropCollection* pc)
 {
   pc->AddItem(this->AxisActor);
   pc->AddItem(this->WallActor);
-  pc->AddItem(this->TopCapActor);
-  pc->AddItem(this->BottomCapActor);
   pc->AddItem(this->TopGlyphActor);
   pc->AddItem(this->BottomGlyphActor);
 }
@@ -862,8 +840,6 @@ void vtkBoreholeRepresentation::ReleaseGraphicsResources(vtkWindow* w)
 {
   this->AxisActor->ReleaseGraphicsResources(w);
   this->WallActor->ReleaseGraphicsResources(w);
-  this->TopCapActor->ReleaseGraphicsResources(w);
-  this->BottomCapActor->ReleaseGraphicsResources(w);
   this->TopGlyphActor->ReleaseGraphicsResources(w);
   this->BottomGlyphActor->ReleaseGraphicsResources(w);
 }
@@ -874,8 +850,6 @@ int vtkBoreholeRepresentation::RenderOpaqueGeometry(vtkViewport* viewport)
   int count = 0;
   count += this->AxisActor->RenderOpaqueGeometry(viewport);
   count += this->WallActor->RenderOpaqueGeometry(viewport);
-  count += this->TopCapActor->RenderOpaqueGeometry(viewport);
-  count += this->BottomCapActor->RenderOpaqueGeometry(viewport);
   count += this->TopGlyphActor->RenderOpaqueGeometry(viewport);
   count += this->BottomGlyphActor->RenderOpaqueGeometry(viewport);
   return count;
@@ -886,8 +860,6 @@ int vtkBoreholeRepresentation::RenderTranslucentPolygonalGeometry(vtkViewport* v
   int count = 0;
   count += this->AxisActor->RenderTranslucentPolygonalGeometry(viewport);
   count += this->WallActor->RenderTranslucentPolygonalGeometry(viewport);
-  count += this->TopCapActor->RenderTranslucentPolygonalGeometry(viewport);
-  count += this->BottomCapActor->RenderTranslucentPolygonalGeometry(viewport);
   count += this->TopGlyphActor->RenderTranslucentPolygonalGeometry(viewport);
   count += this->BottomGlyphActor->RenderTranslucentPolygonalGeometry(viewport);
   return count;
@@ -897,8 +869,6 @@ vtkTypeBool vtkBoreholeRepresentation::HasTranslucentPolygonalGeometry()
 {
   return this->AxisActor->HasTranslucentPolygonalGeometry() ||
     this->WallActor->HasTranslucentPolygonalGeometry() ||
-    this->TopCapActor->HasTranslucentPolygonalGeometry() ||
-    this->BottomCapActor->HasTranslucentPolygonalGeometry() ||
     this->TopGlyphActor->HasTranslucentPolygonalGeometry() ||
     this->BottomGlyphActor->HasTranslucentPolygonalGeometry();
 }
@@ -910,5 +880,8 @@ void vtkBoreholeRepresentation::PrintSelf(ostream& os, vtkIndent indent)
   os << indent << "GlyphRadius: " << this->GlyphRadius << "\n";
   os << indent << "TopPosition: " << this->TopPosition << "\n";
   os << indent << "BottomPosition: " << this->BottomPosition << "\n";
+  os << indent << "SurfaceDx: " << this->SurfaceDx << "\n";
+  os << indent << "SurfaceDy: " << this->SurfaceDy << "\n";
+  os << indent << "SurfaceDz: " << this->SurfaceDz << "\n";
 }
 VTK_ABI_NAMESPACE_END
