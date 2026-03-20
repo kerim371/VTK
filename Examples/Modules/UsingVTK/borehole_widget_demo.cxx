@@ -70,6 +70,7 @@ int main(int, char*[])
   vtkNew<vtkBoreholeWidget> widget;
   widget->SetInteractor(interactor);
   widget->SetCurrentRenderer(renderer);
+  widget->SetPriority(1.0);
   widget->SetRepresentation(rep);
   widget->SetEnabled(1);
 

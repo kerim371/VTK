@@ -90,6 +90,10 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
 
   this->Picker = vtkCellPicker::New();
   this->Picker->SetTolerance(0.005);
+  this->Picker->PickFromListOn();
+  this->Picker->AddPickList(this->WallActor);
+  this->Picker->AddPickList(this->TopCapActor);
+  this->Picker->AddPickList(this->BottomCapActor);
 
   this->LastEventPosition[0] = 0.0;
   this->LastEventPosition[1] = 0.0;
