@@ -9,6 +9,7 @@
 #define vtkStructuralSurfaceBoxWidget_h
 
 #include "vtkAbstractWidget.h"
+#include "vtkCommand.h"
 #include "vtkInteractionWidgetsModule.h" // For export macro
 #include "vtkWrappingHints.h" // For VTK_MARSHALAUTO
 
@@ -22,6 +23,18 @@ public:
   static vtkStructuralSurfaceBoxWidget* New();
   vtkTypeMacro(vtkStructuralSurfaceBoxWidget, vtkAbstractWidget);
   void PrintSelf(ostream& os, vtkIndent indent) override;
+
+  // These custom events separate translation from resizing so applications can
+  // react differently to each kind of user interaction.
+  enum WidgetEventIds
+  {
+    TranslateStartEvent = vtkCommand::UserEvent + 100,
+    TranslateInteractionEvent,
+    TranslateEndEvent,
+    ResizeStartEvent,
+    ResizeInteractionEvent,
+    ResizeEndEvent
+  };
 
   void SetRepresentation(vtkStructuralSurfaceBoxRepresentation* rep);
   vtkStructuralSurfaceBoxRepresentation* GetStructuralSurfaceBoxRepresentation();
@@ -38,7 +51,15 @@ protected:
     Active
   };
 
+  enum InteractionModeType
+  {
+    NoInteraction = 0,
+    TranslationInteraction,
+    ResizeInteraction
+  };
+
   int WidgetState;
+  int InteractionMode;
 
   static void SelectAction(vtkAbstractWidget* w);
   static void MoveAction(vtkAbstractWidget* w);

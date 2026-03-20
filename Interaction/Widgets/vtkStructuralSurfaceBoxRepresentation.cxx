@@ -8,6 +8,7 @@
 #include "vtkCellArray.h"
 #include "vtkCellLocator.h"
 #include "vtkCellPicker.h"
+#include "vtkCleanPolyData.h"
 #include "vtkFeatureEdges.h"
 #include "vtkMath.h"
 #include "vtkNew.h"
@@ -108,6 +109,7 @@ vtkStructuralSurfaceBoxRepresentation::vtkStructuralSurfaceBoxRepresentation()
   , LowerSurfaceIndex(1)
   , SamplingResolutionX(12)
   , SamplingResolutionY(12)
+  , SamplingResolutionZ(8)
   , TopInterpolation(0.2)
   , BottomInterpolation(0.8)
   , HandleRadius(1.0)
@@ -269,6 +271,26 @@ void vtkStructuralSurfaceBoxRepresentation::SetFootprint(
   this->Modified();
 }
 
+void vtkStructuralSurfaceBoxRepresentation::SetSamplingDimensions(int xPoints, int yPoints, int zPoints)
+{
+  this->SetSamplingResolutionX(std::max(1, xPoints - 1));
+  this->SetSamplingResolutionY(std::max(1, yPoints - 1));
+  this->SetSamplingResolutionZ(std::max(1, zPoints - 1));
+}
+
+bool vtkStructuralSurfaceBoxRepresentation::GetSamplingDimensions(int dims[3]) const
+{
+  if (!dims)
+  {
+    return false;
+  }
+
+  dims[0] = this->SamplingResolutionX + 1;
+  dims[1] = this->SamplingResolutionY + 1;
+  dims[2] = this->SamplingResolutionZ + 1;
+  return true;
+}
+
 bool vtkStructuralSurfaceBoxRepresentation::GetFootprint(double footprint[4]) const
 {
   if (!footprint)
@@ -277,6 +299,12 @@ bool vtkStructuralSurfaceBoxRepresentation::GetFootprint(double footprint[4]) co
   }
   std::copy(this->Footprint, this->Footprint + 4, footprint);
   return true;
+}
+
+vtkPolyData* vtkStructuralSurfaceBoxRepresentation::GetClosedSurface()
+{
+  this->BuildRepresentation();
+  return this->SurfacePolyData;
 }
 
 vtkPolyData* vtkStructuralSurfaceBoxRepresentation::GetActiveSurface() const
@@ -541,6 +569,8 @@ bool vtkStructuralSurfaceBoxRepresentation::ComputeWorldPointOnHorizontalPlane(
 bool vtkStructuralSurfaceBoxRepresentation::ComputeDisplayInterpolationParameter(
   int X, int Y, double& interpolation)
 {
+  // Z handles are dragged in display space to keep the cursor locked to the
+  // perceived vertical segment between the current top and bottom anchors.
   const double xmid = 0.5 * (this->Footprint[0] + this->Footprint[1]);
   const double ymid = 0.5 * (this->Footprint[2] + this->Footprint[3]);
   const double topAnchor[3] = { xmid, ymid,
@@ -816,6 +846,7 @@ void vtkStructuralSurfaceBoxRepresentation::BuildRepresentation()
 
   const int nx = this->SamplingResolutionX;
   const int ny = this->SamplingResolutionY;
+  const int nz = this->SamplingResolutionZ;
   const vtkIdType planeSize = static_cast<vtkIdType>(nx + 1) * static_cast<vtkIdType>(ny + 1);
   const double dx = (this->Footprint[1] - this->Footprint[0]) / static_cast<double>(nx);
   const double dy = (this->Footprint[3] - this->Footprint[2]) / static_cast<double>(ny);
@@ -858,44 +889,73 @@ void vtkStructuralSurfaceBoxRepresentation::BuildRepresentation()
     }
   }
 
-  for (int i = 0; i < nx; ++i)
-  {
-    vtkIdType front0 = i;
-    vtkIdType front1 = i + 1;
-    vtkIdType frontTri0[3] = { front0, front1, front1 + planeSize };
-    vtkIdType frontTri1[3] = { front0, front1 + planeSize, front0 + planeSize };
-    polys->InsertNextCell(3, frontTri0);
-    polys->InsertNextCell(3, frontTri1);
+  // Side walls get their own Z sampling so callers can reuse the generated
+  // scaffold points for additional calculations on the closed surface.
+  auto appendSideSurface = [&](int edgeResolution, auto pointGenerator) {
+    const int edgePointCount = edgeResolution + 1;
+    std::vector<vtkIdType> sideIds(static_cast<std::size_t>(nz + 1) * edgePointCount);
 
-    vtkIdType back0 = static_cast<vtkIdType>(ny) * (nx + 1) + i;
-    vtkIdType back1 = back0 + 1;
-    vtkIdType backTri0[3] = { back0, back0 + planeSize, back1 + planeSize };
-    vtkIdType backTri1[3] = { back0, back1 + planeSize, back1 };
-    polys->InsertNextCell(3, backTri0);
-    polys->InsertNextCell(3, backTri1);
-  }
+    for (int layer = 0; layer <= nz; ++layer)
+    {
+      const double alpha = static_cast<double>(layer) / static_cast<double>(nz);
+      const double interpolation =
+        this->TopInterpolation + alpha * (this->BottomInterpolation - this->TopInterpolation);
+      for (int edgePoint = 0; edgePoint <= edgeResolution; ++edgePoint)
+      {
+        double x = 0.0;
+        double y = 0.0;
+        pointGenerator(edgePoint, x, y);
+        sideIds[static_cast<std::size_t>(layer) * edgePointCount + edgePoint] =
+          surfacePoints->InsertNextPoint(x, y, this->ComputeInterpolatedReferenceZ(x, y, interpolation));
+      }
+    }
 
-  for (int j = 0; j < ny; ++j)
-  {
-    vtkIdType left0 = static_cast<vtkIdType>(j) * (nx + 1);
-    vtkIdType left1 = static_cast<vtkIdType>(j + 1) * (nx + 1);
-    vtkIdType leftTri0[3] = { left0, left0 + planeSize, left1 + planeSize };
-    vtkIdType leftTri1[3] = { left0, left1 + planeSize, left1 };
-    polys->InsertNextCell(3, leftTri0);
-    polys->InsertNextCell(3, leftTri1);
+    for (int layer = 0; layer < nz; ++layer)
+    {
+      for (int edgePoint = 0; edgePoint < edgeResolution; ++edgePoint)
+      {
+        const vtkIdType p00 = sideIds[static_cast<std::size_t>(layer) * edgePointCount + edgePoint];
+        const vtkIdType p10 = sideIds[static_cast<std::size_t>(layer) * edgePointCount + edgePoint + 1];
+        const vtkIdType p01 =
+          sideIds[static_cast<std::size_t>(layer + 1) * edgePointCount + edgePoint];
+        const vtkIdType p11 =
+          sideIds[static_cast<std::size_t>(layer + 1) * edgePointCount + edgePoint + 1];
+        vtkIdType tri0[3] = { p00, p10, p11 };
+        vtkIdType tri1[3] = { p00, p11, p01 };
+        polys->InsertNextCell(3, tri0);
+        polys->InsertNextCell(3, tri1);
+      }
+    }
+  };
 
-    vtkIdType right0 = static_cast<vtkIdType>(j) * (nx + 1) + nx;
-    vtkIdType right1 = static_cast<vtkIdType>(j + 1) * (nx + 1) + nx;
-    vtkIdType rightTri0[3] = { right0, right1, right1 + planeSize };
-    vtkIdType rightTri1[3] = { right0, right1 + planeSize, right0 + planeSize };
-    polys->InsertNextCell(3, rightTri0);
-    polys->InsertNextCell(3, rightTri1);
-  }
+  appendSideSurface(nx, [&](int edgePoint, double& x, double& y) {
+    x = this->Footprint[0] + static_cast<double>(edgePoint) * dx;
+    y = this->Footprint[2];
+  });
+  appendSideSurface(nx, [&](int edgePoint, double& x, double& y) {
+    x = this->Footprint[0] + static_cast<double>(edgePoint) * dx;
+    y = this->Footprint[3];
+  });
+  appendSideSurface(ny, [&](int edgePoint, double& x, double& y) {
+    x = this->Footprint[0];
+    y = this->Footprint[2] + static_cast<double>(edgePoint) * dy;
+  });
+  appendSideSurface(ny, [&](int edgePoint, double& x, double& y) {
+    x = this->Footprint[1];
+    y = this->Footprint[2] + static_cast<double>(edgePoint) * dy;
+  });
 
-  this->SurfacePolyData->SetPoints(surfacePoints);
-  this->SurfacePolyData->SetPolys(polys);
-  this->SurfacePolyData->BuildCells();
-  this->SurfacePolyData->ComputeBounds();
+  vtkNew<vtkPolyData> rawSurfacePolyData;
+  rawSurfacePolyData->SetPoints(surfacePoints);
+  rawSurfacePolyData->SetPolys(polys);
+  rawSurfacePolyData->BuildCells();
+
+  vtkNew<vtkCleanPolyData> cleanSurface;
+  cleanSurface->SetInputData(rawSurfacePolyData);
+  cleanSurface->ToleranceIsAbsoluteOn();
+  cleanSurface->SetAbsoluteTolerance(1e-9);
+  cleanSurface->Update();
+  this->SurfacePolyData->DeepCopy(cleanSurface->GetOutput());
   this->SurfacePolyData->GetBounds(this->Bounds);
 
   vtkNew<vtkPoints> outlinePoints;
@@ -927,7 +987,7 @@ void vtkStructuralSurfaceBoxRepresentation::BuildRepresentation()
   appendPerimeterLoop(0);
   appendPerimeterLoop(planeSize);
 
-  const int verticalEdgeResolution = std::max(2, std::max(nx, ny) / 2);
+  const int verticalEdgeResolution = nz;
   const std::array<std::array<double, 2>, 4> cornerXY = { std::array<double, 2>{ this->Footprint[0], this->Footprint[2] },
     std::array<double, 2>{ this->Footprint[1], this->Footprint[2] },
     std::array<double, 2>{ this->Footprint[1], this->Footprint[3] },
@@ -1212,8 +1272,12 @@ void vtkStructuralSurfaceBoxRepresentation::PrintSelf(ostream& os, vtkIndent ind
   this->Superclass::PrintSelf(os, indent);
   os << indent << "ActiveSurfaceIndex: " << this->ActiveSurfaceIndex << "\n";
   os << indent << "LowerSurfaceIndex: " << this->LowerSurfaceIndex << "\n";
+  os << indent << "SamplingResolutionX: " << this->SamplingResolutionX << "\n";
+  os << indent << "SamplingResolutionY: " << this->SamplingResolutionY << "\n";
+  os << indent << "SamplingResolutionZ: " << this->SamplingResolutionZ << "\n";
   os << indent << "TopInterpolation: " << this->TopInterpolation << "\n";
   os << indent << "BottomInterpolation: " << this->BottomInterpolation << "\n";
+  os << indent << "HandleRadius: " << this->HandleRadius << "\n";
   os << indent << "Footprint: [" << this->Footprint[0] << ", " << this->Footprint[1] << ", "
      << this->Footprint[2] << ", " << this->Footprint[3] << "]\n";
 }

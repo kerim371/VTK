@@ -28,6 +28,7 @@ class vtkCellPicker;
 class vtkPolyData;
 class vtkPolyDataCollection;
 class vtkPolyDataMapper;
+class vtkPoints;
 class vtkPropCollection;
 class vtkProperty;
 class vtkSphereSource;
@@ -67,11 +68,20 @@ public:
   vtkGetMacro(SamplingResolutionX, int);
   vtkSetClampMacro(SamplingResolutionY, int, 1, VTK_INT_MAX);
   vtkGetMacro(SamplingResolutionY, int);
+  vtkSetClampMacro(SamplingResolutionZ, int, 1, VTK_INT_MAX);
+  vtkGetMacro(SamplingResolutionZ, int);
+
+  // Convenience API that lets callers specify the number of sample points
+  // instead of the number of intervals along each axis.
+  void SetSamplingDimensions(int xPoints, int yPoints, int zPoints);
+  bool GetSamplingDimensions(int dims[3]) const;
 
   vtkSetClampMacro(TopInterpolation, double, 0.0, 1.0);
   vtkGetMacro(TopInterpolation, double);
   vtkSetClampMacro(BottomInterpolation, double, 0.0, 1.0);
   vtkGetMacro(BottomInterpolation, double);
+  // Handle radius is expressed in world coordinates and stays constant while
+  // the ROI footprint and height change.
   vtkSetClampMacro(HandleRadius, double, 1e-6, VTK_DOUBLE_MAX);
   vtkGetMacro(HandleRadius, double);
 
@@ -79,6 +89,9 @@ public:
 
   bool GetFootprint(double footprint[4]) const;
   bool EvaluateSurfaceHeight(double x, double y, double& z);
+  // Returns the current closed-shell polydata that is rebuilt as the widget
+  // moves. Callers can reuse its points/cells for custom scalar computation.
+  vtkPolyData* GetClosedSurface();
 
   void BuildRepresentation() override;
   int ComputeInteractionState(int X, int Y, int modify = 0) override;
@@ -123,6 +136,7 @@ protected:
   int LowerSurfaceIndex;
   int SamplingResolutionX;
   int SamplingResolutionY;
+  int SamplingResolutionZ;
   double TopInterpolation;
   double BottomInterpolation;
   double HandleRadius;
