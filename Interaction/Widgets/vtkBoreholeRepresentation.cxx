@@ -5,6 +5,8 @@
 #include "vtkActor.h"
 #include "vtkCellPicker.h"
 #include "vtkClipClosedSurface.h"
+#include "vtkContourTriangulator.h"
+#include "vtkCutter.h"
 #include "vtkMath.h"
 #include "vtkObjectFactory.h"
 #include "vtkPlane.h"
@@ -71,8 +73,13 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   this->TopCapSource->SetNumberOfSides(48);
   this->TopCapSource->GeneratePolygonOn();
   this->TopCapSource->SetRadius(this->Radius);
+  this->TopCapCutter = vtkCutter::New();
+  this->TopCapCutter->SetInputConnection(this->Tube->GetOutputPort());
+  this->TopCapCutter->SetCutFunction(this->TopPlane);
+  this->TopCapTriangulator = vtkContourTriangulator::New();
+  this->TopCapTriangulator->SetInputConnection(this->TopCapCutter->GetOutputPort());
   this->TopCapMapper = vtkPolyDataMapper::New();
-  this->TopCapMapper->SetInputConnection(this->TopCapSource->GetOutputPort());
+  this->TopCapMapper->SetInputConnection(this->TopCapTriangulator->GetOutputPort());
   this->TopCapActor = vtkActor::New();
   this->TopCapActor->SetMapper(this->TopCapMapper);
 
@@ -80,8 +87,13 @@ vtkBoreholeRepresentation::vtkBoreholeRepresentation()
   this->BottomCapSource->SetNumberOfSides(48);
   this->BottomCapSource->GeneratePolygonOn();
   this->BottomCapSource->SetRadius(this->Radius);
+  this->BottomCapCutter = vtkCutter::New();
+  this->BottomCapCutter->SetInputConnection(this->Tube->GetOutputPort());
+  this->BottomCapCutter->SetCutFunction(this->BottomPlane);
+  this->BottomCapTriangulator = vtkContourTriangulator::New();
+  this->BottomCapTriangulator->SetInputConnection(this->BottomCapCutter->GetOutputPort());
   this->BottomCapMapper = vtkPolyDataMapper::New();
-  this->BottomCapMapper->SetInputConnection(this->BottomCapSource->GetOutputPort());
+  this->BottomCapMapper->SetInputConnection(this->BottomCapTriangulator->GetOutputPort());
   this->BottomCapActor = vtkActor::New();
   this->BottomCapActor->SetMapper(this->BottomCapMapper);
 
@@ -157,9 +169,13 @@ vtkBoreholeRepresentation::~vtkBoreholeRepresentation()
   this->WallMapper->Delete();
   this->WallActor->Delete();
   this->TopCapSource->Delete();
+  this->TopCapCutter->Delete();
+  this->TopCapTriangulator->Delete();
   this->TopCapMapper->Delete();
   this->TopCapActor->Delete();
   this->BottomCapSource->Delete();
+  this->BottomCapCutter->Delete();
+  this->BottomCapTriangulator->Delete();
   this->BottomCapMapper->Delete();
   this->BottomCapActor->Delete();
   this->AxisMapper->Delete();
@@ -389,25 +405,8 @@ void vtkBoreholeRepresentation::UpdateClippingPlanes()
 
 void vtkBoreholeRepresentation::UpdateCapActors()
 {
-  double topPoint[3];
-  double bottomPoint[3];
-  double topNormal[3];
-  double bottomNormal[3];
-  this->TopPlane->GetOrigin(topPoint);
-  this->BottomPlane->GetOrigin(bottomPoint);
-  this->TopPlane->GetNormal(topNormal);
-  this->BottomPlane->GetNormal(bottomNormal);
-  if (vtkMath::Norm(topNormal) <= 0.0 || vtkMath::Norm(bottomNormal) <= 0.0)
-  {
-    return;
-  }
-
-  this->TopCapSource->SetCenter(topPoint);
-  this->TopCapSource->SetNormal(-topNormal[0], -topNormal[1], -topNormal[2]);
-  this->TopCapSource->SetRadius(this->Radius);
-  this->BottomCapSource->SetCenter(bottomPoint);
-  this->BottomCapSource->SetNormal(bottomNormal);
-  this->BottomCapSource->SetRadius(this->Radius);
+  this->TopCapCutter->Modified();
+  this->BottomCapCutter->Modified();
 }
 
 void vtkBoreholeRepresentation::UpdateGlyphActors()

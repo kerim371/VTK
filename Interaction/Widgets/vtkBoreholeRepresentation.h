@@ -32,6 +32,8 @@ class vtkProp;
 class vtkProperty;
 class vtkSphereSource;
 class vtkRegularPolygonSource;
+class vtkCutter;
+class vtkContourTriangulator;
 class vtkTubeFilter;
 
 class VTKINTERACTIONWIDGETS_EXPORT VTK_MARSHALAUTO vtkBoreholeRepresentation
@@ -132,10 +134,14 @@ protected:
   vtkActor* WallActor;
 
   vtkRegularPolygonSource* TopCapSource;
+  vtkCutter* TopCapCutter;
+  vtkContourTriangulator* TopCapTriangulator;
   vtkPolyDataMapper* TopCapMapper;
   vtkActor* TopCapActor;
 
   vtkRegularPolygonSource* BottomCapSource;
+  vtkCutter* BottomCapCutter;
+  vtkContourTriangulator* BottomCapTriangulator;
   vtkPolyDataMapper* BottomCapMapper;
   vtkActor* BottomCapActor;
 
