@@ -237,6 +237,7 @@ void vtkBoreholeRepresentation::BuildRepresentation()
     this->BottomPlane->GetNormal(nBottom);
     this->TopPlane->SetNormal(-nTop[0], -nTop[1], -nTop[2]);
     this->BottomPlane->SetNormal(-nBottom[0], -nBottom[1], -nBottom[2]);
+    this->UpdateCapActors();
     this->Clip->Update();
   }
 }
@@ -311,21 +312,33 @@ void vtkBoreholeRepresentation::UpdateClippingPlanes()
 void vtkBoreholeRepresentation::UpdateCapActors()
 {
   double topPoint[3];
-  double topTangent[3];
   double bottomPoint[3];
-  double bottomTangent[3];
-  if (!this->ComputePointAndTangent(this->TopPosition, topPoint, topTangent) ||
-    !this->ComputePointAndTangent(this->BottomPosition, bottomPoint, bottomTangent))
+  double topNormal[3];
+  double bottomNormal[3];
+  this->TopPlane->GetOrigin(topPoint);
+  this->BottomPlane->GetOrigin(bottomPoint);
+  this->TopPlane->GetNormal(topNormal);
+  this->BottomPlane->GetNormal(bottomNormal);
+  if (vtkMath::Norm(topNormal) <= 0.0 || vtkMath::Norm(bottomNormal) <= 0.0)
   {
     return;
   }
 
   this->TopCapSource->SetCenter(topPoint);
-  this->TopCapSource->SetNormal(topTangent);
+  this->TopCapSource->SetNormal(-topNormal[0], -topNormal[1], -topNormal[2]);
   this->TopCapSource->SetRadius(this->Radius);
 
+  const double eps = std::max(1e-4, 1e-3 * this->Radius);
+  topPoint[0] -= eps * topNormal[0];
+  topPoint[1] -= eps * topNormal[1];
+  topPoint[2] -= eps * topNormal[2];
+  this->TopCapSource->SetCenter(topPoint);
+
+  bottomPoint[0] += eps * bottomNormal[0];
+  bottomPoint[1] += eps * bottomNormal[1];
+  bottomPoint[2] += eps * bottomNormal[2];
   this->BottomCapSource->SetCenter(bottomPoint);
-  this->BottomCapSource->SetNormal(-bottomTangent[0], -bottomTangent[1], -bottomTangent[2]);
+  this->BottomCapSource->SetNormal(bottomNormal);
   this->BottomCapSource->SetRadius(this->Radius);
 }
 
