@@ -22,6 +22,8 @@ set(classes
   vtkBiDimensionalWidget
   vtkBorderRepresentation
   vtkBorderWidget
+  vtkBoreholeRepresentation
+  vtkBoreholeWidget
   vtkBoundedPlanePointPlacer
   vtkBoundedWidgetRepresentation
   vtkBoxRepresentation
