@@ -20,7 +20,7 @@
 #include "vtkPolyData.h" // Needed for static cast
 
 VTK_ABI_NAMESPACE_BEGIN
-class VTKCOMMONDATAMODEL_EXPORT vtkPolyDataCollection : public vtkCollection
+class VTKCOMMONDATAMODEL_EXPORT VTK_MARSHALAUTO vtkPolyDataCollection : public vtkCollection
 {
 public:
   static vtkPolyDataCollection* New();

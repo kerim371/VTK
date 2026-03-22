@@ -75,6 +75,7 @@ Common/DataModel/vtkPlaneCollection.h
 Common/DataModel/vtkPointData.h
 Common/DataModel/vtkPointSet.h
 Common/DataModel/vtkPolyData.h
+Common/DataModel/vtkPolyDataCollection.h
 Common/DataModel/vtkRectilinearGrid.h
 Common/DataModel/vtkStaticCellLinks.h
 Common/DataModel/vtkStructuredGrid.h
@@ -379,6 +380,10 @@ Interaction/Widgets/vtkImplicitCylinderRepresentation.h
 Interaction/Widgets/vtkImplicitCylinderWidget.h
 Interaction/Widgets/vtkImplicitFrustumRepresentation.h
 Interaction/Widgets/vtkImplicitFrustumWidget.h
+Interaction/Widgets/vtkBoreholeRepresentation.h
+Interaction/Widgets/vtkBoreholeWidget.h
+Interaction/Widgets/vtkStructuralSurfaceBoxWidget.h
+Interaction/Widgets/vtkStructuralSurfaceBoxRepresentation.h
 Interaction/Widgets/vtkImplicitPlaneRepresentation.h
 Interaction/Widgets/vtkImplicitPlaneWidget2.h
 Interaction/Widgets/vtkLightRepresentation.h
