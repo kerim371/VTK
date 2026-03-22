@@ -89,6 +89,13 @@ public:
 
   bool GetFootprint(double footprint[4]) const;
   bool EvaluateSurfaceHeight(double x, double y, double& z);
+  // Scalar footprint getters are exposed separately so wrapper clients such as
+  // VTK.wasm / trame can synchronize widget state without relying on pointer
+  // arguments.
+  double GetFootprintMinX() const { return this->Footprint[0]; }
+  double GetFootprintMaxX() const { return this->Footprint[1]; }
+  double GetFootprintMinY() const { return this->Footprint[2]; }
+  double GetFootprintMaxY() const { return this->Footprint[3]; }
   // Returns the current closed-shell polydata that is rebuilt as the widget
   // moves. Callers can reuse its points/cells for custom scalar computation.
   vtkPolyData* GetClosedSurface();

@@ -19,6 +19,11 @@ import vtkmodules.vtkRenderingOpenGL2  # noqa: F401
 from trame.app import get_server
 from trame.ui.vuetify3 import SinglePageLayout
 from trame.widgets import html, vtk as vtk_widgets, vuetify3 as v3
+
+try:
+    from trame.widgets import vtklocal
+except ImportError:  # pragma: no cover - optional dependency for local/WASM tests
+    vtklocal = None
 from vtkmodules.vtkCommonCore import vtkCommand, vtkPoints
 from vtkmodules.vtkCommonDataModel import vtkCellArray, vtkPolyData, vtkPolyDataCollection, vtkPolyLine
 from vtkmodules.vtkFiltersSources import vtkPlaneSource
@@ -118,6 +123,7 @@ class StructuralSurfaceBoxTrameApp:
 
         self._build_vtk_pipeline()
         self._bind_widget_events()
+        self.server.state.change("local_widget_state")(self._on_local_widget_state)
         self._build_ui()
         self._update_shell_state("ready")
 
@@ -184,8 +190,17 @@ class StructuralSurfaceBoxTrameApp:
         self.renderer.ResetCamera()
         self.renderer.ResetCameraClippingRange()
         self.render_window.Render()
-        if callable(getattr(self.ctrl, "view_update", None)):
-            self.ctrl.view_update()
+        if callable(getattr(self.ctrl, "remote_reset_camera", None)):
+            self.ctrl.remote_reset_camera()
+        if callable(getattr(self.ctrl, "local_reset_camera", None)):
+            self.ctrl.local_reset_camera()
+        self._sync_views()
+
+    def _sync_views(self):
+        if callable(getattr(self.ctrl, "remote_update", None)):
+            self.ctrl.remote_update()
+        if callable(getattr(self.ctrl, "local_update", None)):
+            self.ctrl.local_update()
 
     def _update_shell_state(self, event_name):
         shell = self.rep.GetClosedSurface()
@@ -197,8 +212,22 @@ class StructuralSurfaceBoxTrameApp:
         self.state.top_interpolation = round(self.rep.GetTopInterpolation(), 4)
         self.state.bottom_interpolation = round(self.rep.GetBottomInterpolation(), 4)
         self.state.last_widget_event = event_name
-        if callable(getattr(self.ctrl, "view_update", None)):
-            self.ctrl.view_update()
+        self._sync_views()
+
+    def _on_local_widget_state(self, local_widget_state=None, **_):
+        if not local_widget_state:
+            return
+
+        self.rep.SetTopInterpolation(local_widget_state["top_interpolation"])
+        self.rep.SetBottomInterpolation(local_widget_state["bottom_interpolation"])
+        self.rep.SetFootprint(
+            local_widget_state["footprint_min_x"],
+            local_widget_state["footprint_max_x"],
+            local_widget_state["footprint_min_y"],
+            local_widget_state["footprint_max_y"],
+        )
+        self.rep.BuildRepresentation()
+        self._update_shell_state("local-wasm-sync")
 
     def _bind_widget_events(self):
         def observer(label):
@@ -220,67 +249,112 @@ class StructuralSurfaceBoxTrameApp:
     def _build_ui(self):
         with SinglePageLayout(self.server) as layout:
             layout.title.set_text("Structural Surface Box Widget / Trame")
-            self.state.view_warning = ""
-            self.state.view_backend = "VtkRemoteLocalView"
-            self.state.view_modes = [{"title": "Remote", "value": "remote"}, {"title": "Local", "value": "local"}]
+            self.state.remote_backend = "VtkRemoteView"
+            self.state.local_backend = "Unavailable"
+            self.state.local_warning = ""
+            self.state.local_widget_state = None
 
             with layout.toolbar:
                 html.Div(
-                    "Use remote mode to validate server-side widget interaction. Local mode is useful to inspect "
-                    "the exported scene in the browser.",
+                    "Remote view validates the server-side widget. Local view validates the VTK.wasm widget path "
+                    "used by trame local rendering.",
                     classes="text-caption mx-4",
                 )
                 v3.VSpacer()
-                v3.VSelect(
-                    v_model=("viewMode", "remote"),
-                    items=("view_modes",),
-                    density="compact",
-                    hide_details=True,
-                    style="max-width: 170px",
-                )
                 v3.VBtn("Reset camera", click=self._reset_camera, classes="ml-2", density="compact")
 
             with layout.content:
                 with v3.VContainer(fluid=True, classes="fill-height pa-0 ma-0"):
                     with v3.VRow(classes="fill-height ma-0", dense=True):
-                        with v3.VCol(cols=9, classes="pa-0 fill-height"):
-                            try:
-                                view = vtk_widgets.VtkRemoteLocalView(
-                                    view=self.render_window,
-                                    namespace="view",
-                                    mode="remote",
-                                    interactive_ratio=1,
-                                )
+                        with v3.VCol(cols=6, classes="pa-0 fill-height"):
+                            with v3.VCard(variant="outlined", classes="fill-height ma-2"):
+                                v3.VCardTitle("Remote view")
+                                with v3.VCardText(classes="pa-0 fill-height"):
+                                    remote_view = vtk_widgets.VtkRemoteView(
+                                        view=self.render_window,
+                                        interactive_ratio=1,
+                                    )
+                                    self.ctrl.remote_update = remote_view.update
+                                    self.ctrl.remote_reset_camera = remote_view.reset_camera
 
-                                def update_view():
-                                    if self.state.viewMode == "local":
-                                        view.update_geometry()
+                        with v3.VCol(cols=6, classes="pa-0 fill-height"):
+                            with v3.VCard(variant="outlined", classes="fill-height ma-2"):
+                                v3.VCardTitle("Local view (VTK.wasm)")
+                                with v3.VCardText(classes="pa-0 fill-height"):
+                                    if vtklocal is None:
+                                        self.state.local_backend = "Missing trame-vtklocal"
+                                        self.state.local_warning = (
+                                            "Install trame-vtklocal to test the widget in trame local/WASM mode."
+                                        )
+                                        html.Div("{{ local_warning }}", classes="pa-4 text-caption")
                                     else:
-                                        view.update_image()
+                                        try:
+                                            with vtklocal.LocalView(
+                                                self.render_window,
+                                                throttle_rate=20,
+                                                ctx_name="structural_surface_box_wasm",
+                                            ) as local_view:
+                                                self.state.local_backend = "vtklocal.LocalView"
+                                                self.ctrl.local_update = local_view.update_throttle
+                                                self.ctrl.local_reset_camera = local_view.reset_camera
+                                                wasm_id = local_view.register_vtk_object(self.widget)
+                                                local_view.listeners = (
+                                                    "listeners",
+                                                    {
+                                                        wasm_id: {
+                                                            "InteractionEvent": {
+                                                                "local_widget_state": {
+                                                                    "top_interpolation": (
+                                                                        wasm_id,
+                                                                        "WidgetRepresentation",
+                                                                        "TopInterpolation",
+                                                                    ),
+                                                                    "bottom_interpolation": (
+                                                                        wasm_id,
+                                                                        "WidgetRepresentation",
+                                                                        "BottomInterpolation",
+                                                                    ),
+                                                                    "footprint_min_x": (
+                                                                        wasm_id,
+                                                                        "WidgetRepresentation",
+                                                                        "FootprintMinX",
+                                                                    ),
+                                                                    "footprint_max_x": (
+                                                                        wasm_id,
+                                                                        "WidgetRepresentation",
+                                                                        "FootprintMaxX",
+                                                                    ),
+                                                                    "footprint_min_y": (
+                                                                        wasm_id,
+                                                                        "WidgetRepresentation",
+                                                                        "FootprintMinY",
+                                                                    ),
+                                                                    "footprint_max_y": (
+                                                                        wasm_id,
+                                                                        "WidgetRepresentation",
+                                                                        "FootprintMaxY",
+                                                                    ),
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                )
+                                        except Exception as exc:  # pragma: no cover - runtime integration path
+                                            self.state.local_backend = "LocalView failed"
+                                            self.state.local_warning = (
+                                                "VTK.wasm local mode could not initialize this widget. "
+                                                f"Original error: {exc}"
+                                            )
+                                            html.Div("{{ local_warning }}", classes="pa-4 text-caption")
 
-                                self.ctrl.view_update = update_view
-                            except AttributeError as exc:
-                                self.state.view_backend = "VtkLocalView"
-                                self.state.view_warning = (
-                                    "Remote/local mode is unavailable because the current VTK Python build does "
-                                    "not expose the web rendering helper required by trame-vtk. Falling back to "
-                                    f"local geometry mode only. Original error: {exc}"
-                                )
-                                self.state.viewMode = "local"
-                                self.state.view_modes = [{"title": "Local", "value": "local"}]
-                                view = vtk_widgets.VtkLocalView(
-                                    view=self.render_window,
-                                    context_name="structural-surface-box",
-                                )
-                                self.ctrl.view_update = view.update
-
-                        with v3.VCol(cols=3, classes="pa-2"):
+                    with v3.VRow(dense=True, classes="ma-0"):
+                        with v3.VCol(cols=4, classes="pa-2"):
                             with v3.VCard(variant="outlined", classes="mb-2"):
-                                v3.VCardTitle("Rendering backend")
+                                v3.VCardTitle("Backends")
                                 with v3.VCardText():
-                                    html.Div("Active backend: {{ view_backend }}")
-                                    html.Div("Current mode: {{ viewMode }}")
-                                    html.Div("{{ view_warning }}", classes="text-caption text-wrap")
+                                    html.Div("Remote backend: {{ remote_backend }}")
+                                    html.Div("Local backend: {{ local_backend }}")
+                                    html.Div("{{ local_warning }}", classes="text-caption text-wrap")
 
                             with v3.VCard(variant="outlined", classes="mb-2"):
                                 v3.VCardTitle("Widget state")
@@ -297,6 +371,7 @@ class StructuralSurfaceBoxTrameApp:
                                 with v3.VCardText(classes="text-body-2"):
                                     html.Pre(
                                         "set PYTHONPATH=D:\\dev\\vtk\\install\\Lib\\site-packages;%PYTHONPATH%\n"
+                                        "pip install trame trame-vtk trame-vuetify trame-vtklocal\n"
                                         "python trame_structural_surface_box_widget_demo.py",
                                         style="white-space: pre-wrap;",
                                     )

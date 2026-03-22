@@ -56,8 +56,9 @@ against an installed VTK Python package.
 
 The Trame app exposes:
 
-- a `VtkRemoteLocalView` so you can switch between remote and local rendering
-  modes from the same page;
+- a `VtkRemoteView` for validating the server-side widget interaction path;
+- a `vtklocal.LocalView` for validating the VTK.wasm / JavaScript widget path
+  used by Trame local rendering;
 - live shell statistics (`GetClosedSurface()` point/cell counts and XYZ sampling
   dimensions);
 - widget lifecycle feedback driven by the custom translation / resize events.
@@ -65,7 +66,7 @@ The Trame app exposes:
 Typical Python dependencies:
 
 ```sh
-pip install trame trame-vtk trame-vuetify
+pip install trame trame-vtk trame-vuetify trame-vtklocal
 ```
 
 Then run:
@@ -74,11 +75,11 @@ Then run:
 python trame_structural_surface_box_widget_demo.py
 ```
 
-When validating the widget behavior itself, prefer the **remote** mode because
-the widget interaction is handled on the server-side VTK interactor. The local
-mode is still useful for checking that the generated scene and closed shell are
-exported correctly to the browser.
+When validating the widget behavior itself:
 
-If the current VTK Python build does not provide the web-rendering helper
-required by `VtkRemoteLocalView`, the script falls back to `VtkLocalView` and
-reports that limitation in the UI instead of failing during startup.
+- use the **remote** view to test the native/server-side VTK widget path;
+- use the **local** view to test the VTK.wasm / JavaScript widget path.
+
+The local view requires `trame-vtklocal` and a VTK.wasm build that contains the
+custom widget classes. If that local path cannot be initialized, the script
+reports the failure reason in the UI instead of crashing during startup.
