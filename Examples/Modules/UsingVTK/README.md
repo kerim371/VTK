@@ -78,3 +78,7 @@ When validating the widget behavior itself, prefer the **remote** mode because
 the widget interaction is handled on the server-side VTK interactor. The local
 mode is still useful for checking that the generated scene and closed shell are
 exported correctly to the browser.
+
+If the current VTK Python build does not provide the web-rendering helper
+required by `VtkRemoteLocalView`, the script falls back to `VtkLocalView` and
+reports that limitation in the UI instead of failing during startup.

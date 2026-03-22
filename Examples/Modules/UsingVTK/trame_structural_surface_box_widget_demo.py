@@ -180,6 +180,13 @@ class StructuralSurfaceBoxTrameApp:
         self.rep = rep
         self.widget = widget
 
+    def _reset_camera(self):
+        self.renderer.ResetCamera()
+        self.renderer.ResetCameraClippingRange()
+        self.render_window.Render()
+        if callable(getattr(self.ctrl, "view_update", None)):
+            self.ctrl.view_update()
+
     def _update_shell_state(self, event_name):
         shell = self.rep.GetClosedSurface()
         dims = [0, 0, 0]
@@ -213,6 +220,9 @@ class StructuralSurfaceBoxTrameApp:
     def _build_ui(self):
         with SinglePageLayout(self.server) as layout:
             layout.title.set_text("Structural Surface Box Widget / Trame")
+            self.state.view_warning = ""
+            self.state.view_backend = "VtkRemoteLocalView"
+            self.state.view_modes = [{"title": "Remote", "value": "remote"}, {"title": "Local", "value": "local"}]
 
             with layout.toolbar:
                 html.Div(
@@ -223,27 +233,55 @@ class StructuralSurfaceBoxTrameApp:
                 v3.VSpacer()
                 v3.VSelect(
                     v_model=("viewMode", "remote"),
-                    items=("view_modes", [{"title": "Remote", "value": "remote"}, {"title": "Local", "value": "local"}]),
+                    items=("view_modes",),
                     density="compact",
                     hide_details=True,
                     style="max-width: 170px",
                 )
-                v3.VBtn("Reset camera", click=self.ctrl.view_reset_camera, classes="ml-2", density="compact")
+                v3.VBtn("Reset camera", click=self._reset_camera, classes="ml-2", density="compact")
 
             with layout.content:
                 with v3.VContainer(fluid=True, classes="fill-height pa-0 ma-0"):
                     with v3.VRow(classes="fill-height ma-0", dense=True):
                         with v3.VCol(cols=9, classes="pa-0 fill-height"):
-                            view = vtk_widgets.VtkRemoteLocalView(
-                                self.render_window,
-                                namespace="view",
-                                mode="remote",
-                                interactive_ratio=1,
-                            )
-                            self.ctrl.view_update = view.update
-                            self.ctrl.view_reset_camera = view.reset_camera
+                            try:
+                                view = vtk_widgets.VtkRemoteLocalView(
+                                    view=self.render_window,
+                                    namespace="view",
+                                    mode="remote",
+                                    interactive_ratio=1,
+                                )
+
+                                def update_view():
+                                    if self.state.viewMode == "local":
+                                        view.update_geometry()
+                                    else:
+                                        view.update_image()
+
+                                self.ctrl.view_update = update_view
+                            except AttributeError as exc:
+                                self.state.view_backend = "VtkLocalView"
+                                self.state.view_warning = (
+                                    "Remote/local mode is unavailable because the current VTK Python build does "
+                                    "not expose the web rendering helper required by trame-vtk. Falling back to "
+                                    f"local geometry mode only. Original error: {exc}"
+                                )
+                                self.state.viewMode = "local"
+                                self.state.view_modes = [{"title": "Local", "value": "local"}]
+                                view = vtk_widgets.VtkLocalView(
+                                    view=self.render_window,
+                                    context_name="structural-surface-box",
+                                )
+                                self.ctrl.view_update = view.update
 
                         with v3.VCol(cols=3, classes="pa-2"):
+                            with v3.VCard(variant="outlined", classes="mb-2"):
+                                v3.VCardTitle("Rendering backend")
+                                with v3.VCardText():
+                                    html.Div("Active backend: {{ view_backend }}")
+                                    html.Div("Current mode: {{ viewMode }}")
+                                    html.Div("{{ view_warning }}", classes="text-caption text-wrap")
+
                             with v3.VCard(variant="outlined", classes="mb-2"):
                                 v3.VCardTitle("Widget state")
                                 with v3.VCardText():
