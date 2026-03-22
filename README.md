@@ -167,8 +167,3 @@ emcmake cmake `
 cmake --build $env:VTK_BUILD_DIR
 cmake --install $env:VTK_BUILD_DIR --prefix $env:VTK_INSTALL_DIR
 ```
-
-
-
-
-
