@@ -159,6 +159,8 @@ emcmake cmake `
   -DVTK_MODULE_ENABLE_VTK_InteractionWidgets=YES `
   -DVTK_MODULE_ENABLE_VTK_SerializationManager=YES `
   -DVTK_WRAP_SERIALIZATION=ON `
+  -DVTK_WEBASSEMBLY_64_BIT=ON `
+  -DVTK_WRAP_JAVASCRIPT=OFF `
   -DVTK_ENABLE_WEBGPU=ON
 
   # -DVTK_GROUP_ENABLE_Web=WANT `   # not necessary probably
