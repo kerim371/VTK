@@ -99,3 +99,76 @@ See [Copyright.txt][vtk-copyright] for details.
 [vtk-examples]: https://kitware.github.io/vtk-examples/site/
 [vtk-homepage]: https://www.vtk.org/
 [vtk-issues]: https://gitlab.kitware.com/vtk/vtk/-/issues
+
+
+REGULAR VTK
+================
+
+### Windows
+
+```
+$env:VTK_SOURCE_DIR="D:/dev/vtk"
+$env:VTK_BUILD_DIR="D:/dev/vtk/build"
+$env:VTK_INSTALL_DIR="D:/dev/vtk/install"
+```
+
+```
+cmake `
+  -S $env:VTK_SOURCE_DIR `
+  -B $env:VTK_BUILD_DIR `
+  -G "Ninja" `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DBUILD_SHARED_LIBS:BOOL=ON `
+  -DVTK_GROUP_ENABLE_Web:BOOL=WANT `
+  -DVTK_MODULE_ENABLE_VTK_InteractionWidgets=YES `
+  -DVTK_MODULE_ENABLE_VTK_SerializationManager=YES `
+  -DVTK_WRAP_SERIALIZATION=ON `
+  -DVTK_WRAP_JAVASCRIPT=ON `
+  -DVTK_WRAP_PYTHON=ON `
+  -DVTK_WHEEL_BUILD=ON `
+  -DPython3_EXECUTABLE="C:/Users/kerim/AppData/Local/Programs/Python/Python310/python.exe"
+
+cmake --build $env:VTK_BUILD_DIR -j
+cmake --install $env:VTK_BUILD_DIR --prefix $env:VTK_INSTALL_DIR
+```
+
+
+WASM
+============
+
+### Prerequisites
+
+https://docs.vtk.org/en/latest/advanced/build_wasm_emscripten.html
+
+### Windows
+
+```
+$env:VTK_SOURCE_DIR="D:/dev/vtk"
+$env:VTK_BUILD_DIR="D:/dev/vtk/build_wasm"
+$env:VTK_INSTALL_DIR="D:/dev/vtk/install_wasm"
+```
+
+```
+emcmake cmake `
+  -S $env:VTK_SOURCE_DIR `
+  -B $env:VTK_BUILD_DIR `
+  -G "Ninja" `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DBUILD_SHARED_LIBS=OFF `
+  -DVTK_GROUP_ENABLE_Web=WANT `
+  -DVTK_MODULE_ENABLE_VTK_InteractionWidgets=YES `
+  -DVTK_MODULE_ENABLE_VTK_SerializationManager=YES `
+  -DVTK_WRAP_SERIALIZATION=ON `
+  -DVTK_ENABLE_WEBGPU=ON
+
+  # -DVTK_GROUP_ENABLE_Web=WANT `   # not necessary probably
+  # -DVTK_WRAP_JAVASCRIPT=ON `    # PROHIBITED (NOT WORKING)
+
+cmake --build $env:VTK_BUILD_DIR
+cmake --install $env:VTK_BUILD_DIR --prefix $env:VTK_INSTALL_DIR
+```
+
+
+
+
+
