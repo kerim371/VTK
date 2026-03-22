@@ -159,7 +159,8 @@ emcmake cmake `
   -DVTK_MODULE_ENABLE_VTK_InteractionWidgets=YES `
   -DVTK_MODULE_ENABLE_VTK_SerializationManager=YES `
   -DVTK_WRAP_SERIALIZATION=ON `
-  -DVTK_WEBASSEMBLY_64_BIT=ON `
+  -DVTK_WEBASSEMBLY_64_BIT=OFF `
+  -DVTK_WEBASSEMBLY_THREADS=ON `
   -DVTK_WRAP_JAVASCRIPT=OFF `
   -DVTK_ENABLE_WEBGPU=ON
 
@@ -169,3 +170,7 @@ emcmake cmake `
 cmake --build $env:VTK_BUILD_DIR
 cmake --install $env:VTK_BUILD_DIR --prefix $env:VTK_INSTALL_DIR
 ```
+
+`VTK_WEBASSEMBLY_64_BIT=ON` - may give error: `TypeError: Cannot convert a BigInt value to a number`
+
+`VTK_WEBASSEMBLY_64_BIT=ON` requires `Node js > >= 24.0.0` [see here](https://discourse.vtk.org/t/vtk-9-5-0-webassembly-64-bit-build-fails-with-bigint-conversion-error/15794/2?u=kerim)
